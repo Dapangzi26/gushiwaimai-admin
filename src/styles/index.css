@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿:root {
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿:root {
   color: #1f2329;
   background-color: #f5f7fa;
   font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
@@ -171,6 +171,17 @@ body {
   background: #f8fafc;
   border: 1px solid #ebeef5;
   border-radius: 10px;
+}
+
+.workbench-pending__item--clickable {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.workbench-pending__item--clickable:hover {
+  border-color: #409eff;
+  box-shadow: 0 8px 20px rgba(64, 158, 255, 0.12);
+  transform: translateY(-1px);
 }
 
 .workbench-pending__label {
@@ -392,4 +403,99 @@ body {
 
 .feedback-detail__select {
   width: 180px;
+}
+
+.orders-page {
+  min-height: 680px;
+}
+
+.orders-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 0;
+  margin-bottom: 16px;
+}
+
+.orders-filter__select {
+  width: 160px;
+}
+
+.orders-filter__input {
+  width: 220px;
+}
+
+.orders-filter__range {
+  width: 360px;
+}
+
+.orders-alert {
+  margin-bottom: 16px;
+}
+
+.orders-table {
+  width: 100%;
+}
+
+.orders-table__sub {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #909399;
+}
+
+.orders-exception-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.orders-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.orders-empty {
+  padding: 40px 0 16px;
+}
+
+.orders-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.orders-detail__section + .orders-detail__section {
+  margin-top: 20px;
+}
+
+.orders-detail__title {
+  margin-bottom: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.orders-detail__json {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-family: Consolas, 'Courier New', monospace;
+}
+
+.orders-detail__timeline {
+  padding-top: 4px;
+}
+
+.orders-detail__timeline-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.orders-detail__timeline-content {
+  margin-top: 6px;
+  line-height: 1.7;
+  color: #606266;
+  word-break: break-all;
 }

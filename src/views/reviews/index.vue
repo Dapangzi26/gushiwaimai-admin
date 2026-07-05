@@ -1,5 +1,8 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+// 这个文件是“总后台审核中心”。
+// 这里同时承接商家审核和骑手审核，并且支持从工作台按 query 直接跳到对应审核页签。
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   approveMerchant,
@@ -11,6 +14,9 @@ import {
   rejectMerchant,
   rejectRider,
 } from '../../api/review'
+
+const route = useRoute()
+const router = useRouter()
 
 const activeTab = ref('merchant')
 const detailVisible = ref(false)
@@ -41,10 +47,17 @@ const DETAIL_LABEL_MAP = {
   cover: '店铺封面',
   avatar: '头像',
   audit_status: '审核状态',
+  audit_status_text: '审核状态',
   status: '账号状态',
   created_at: '提交时间',
   updated_at: '更新时间',
   apply_time: '申请时间',
+  audited_by_role: '审核角色',
+  audited_by_user_id: '审核人ID',
+  audited_by_name: '审核人',
+  audited_at: '审核时间',
+  reject_reason: '驳回原因',
+  identity_type: '身份类型',
   rider_kind: '骑手类型',
   rider_level: '骑手等级',
   delivery_scope: '配送范围',
@@ -85,6 +98,10 @@ const DETAIL_FIELD_ORDER = {
     'logo',
     'cover',
     'audit_status',
+    'audited_by_role',
+    'audited_by_name',
+    'audited_at',
+    'reject_reason',
     'status',
     'created_at',
     'updated_at',
@@ -95,6 +112,7 @@ const DETAIL_FIELD_ORDER = {
     'nickname',
     'phone',
     'town_name',
+    'identity_type',
     'address',
     'rider_kind',
     'rider_level',
@@ -107,6 +125,10 @@ const DETAIL_FIELD_ORDER = {
     'driving_license',
     'vehicle_license',
     'audit_status',
+    'audited_by_role',
+    'audited_by_name',
+    'audited_at',
+    'reject_reason',
     'status',
     'created_at',
     'updated_at',
@@ -142,6 +164,7 @@ const currentColumns = computed(() =>
         { key: 'id', label: 'ID', width: 90 },
         { key: 'nickname', label: '昵称' },
         { key: 'phone', label: '手机号' },
+        { key: 'identityType', label: '身份类型' },
         { key: 'town', label: '所属乡镇' },
         { key: 'submittedAt', label: '提交时间' },
         { key: 'statusText', label: '当前审核状态' },
@@ -181,6 +204,10 @@ function resolveList(payload) {
   return []
 }
 
+function normalizeReviewTab(value) {
+  return value === 'rider' ? 'rider' : 'merchant'
+}
+
 function normalizeRecord(record, type) {
   return {
     raw: record,
@@ -189,6 +216,7 @@ function normalizeRecord(record, type) {
     nickname: record?.nickname || record?.name || '--',
     phone: record?.phone || record?.mobile || '--',
     town: record?.town_name || record?.town || record?.station_name || '--',
+    identityType: record?.identity_type || '--',
     submittedAt: record?.submitted_at || record?.created_at || record?.apply_time || '--',
     statusText: record?.status_text || record?.audit_status_text || record?.status || '待审核',
     type,
@@ -222,6 +250,10 @@ function normalizeDetailValue(key, value) {
 
   if (key === 'business_scope') {
     return getBusinessScopeLabel(value)
+  }
+
+  if (key === 'rider_kind') {
+    return getRiderKindLabel(value)
   }
 
   if (key === 'delivery_scope') {
@@ -288,6 +320,12 @@ function getDeliveryScopeLabel(scope) {
   return scope || '--'
 }
 
+function getRiderKindLabel(riderKind) {
+  if (riderKind === 'stationmaster') return '乡镇站长'
+  if (riderKind === 'rider') return '普通骑手'
+  return riderKind || '--'
+}
+
 async function loadMerchantList() {
   merchantState.loading = true
   merchantState.error = ''
@@ -336,6 +374,29 @@ async function handleView(row) {
 
 async function handleAudit(row, action) {
   const actionText = action === 'approve' ? '通过' : '拒绝'
+  let payload = {}
+
+  if (action === 'reject') {
+    const promptResult = await ElMessageBox.prompt(
+      `请输入${row.type === 'merchant' ? '商家' : '骑手'}审核驳回原因`,
+      '填写驳回原因',
+      {
+        confirmButtonText: '确认驳回',
+        cancelButtonText: '取消',
+        inputType: 'textarea',
+        inputPlaceholder: '驳回原因会展示给申请方和审核端查看',
+        inputValidator: (value) => {
+          if (!String(value || '').trim()) {
+            return '驳回原因不能为空'
+          }
+          return true
+        }
+      },
+    )
+    payload = {
+      reject_reason: String(promptResult.value || '').trim(),
+    }
+  }
 
   await ElMessageBox.confirm(`确认${actionText}当前${row.type === 'merchant' ? '商家' : '骑手'}审核吗？`, '审核确认', {
     type: 'warning',
@@ -348,7 +409,7 @@ async function handleAudit(row, action) {
       if (action === 'approve') {
         await approveMerchant(row.id)
       } else {
-        await rejectMerchant(row.id)
+        await rejectMerchant(row.id, payload)
       }
 
       await loadMerchantList()
@@ -356,7 +417,7 @@ async function handleAudit(row, action) {
       if (action === 'approve') {
         await approveRider(row.id)
       } else {
-        await rejectRider(row.id)
+        await rejectRider(row.id, payload)
       }
 
       await loadRiderList()
@@ -377,6 +438,31 @@ function handleRetry() {
   loadRiderList()
 }
 
+// 工作台跳审核页时，会带 tab 参数进来。
+// 这里把路由参数和当前页签对齐，避免“点了待审核骑手，却还停在商家审核”。
+async function handleTabChange(tabName) {
+  const normalizedTab = normalizeReviewTab(tabName)
+  if (normalizeReviewTab(route.query.tab) === normalizedTab) {
+    return
+  }
+
+  await router.replace({
+    path: route.path,
+    query: {
+      ...route.query,
+      tab: normalizedTab,
+    },
+  })
+}
+
+watch(
+  () => route.query.tab,
+  (tab) => {
+    activeTab.value = normalizeReviewTab(tab)
+  },
+  { immediate: true },
+)
+
 onMounted(() => {
   loadMerchantList()
   loadRiderList()
@@ -388,7 +474,7 @@ onMounted(() => {
     <h1 class="page-shell__title">审核中心</h1>
 
     <el-card class="page-shell__card review-page">
-      <el-tabs v-model="activeTab">
+      <el-tabs v-model="activeTab" @tab-change="handleTabChange">
         <el-tab-pane label="商家审核" name="merchant" />
         <el-tab-pane label="骑手审核" name="rider" />
       </el-tabs>

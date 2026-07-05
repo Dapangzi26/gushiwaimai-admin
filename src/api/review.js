@@ -15,8 +15,8 @@ export async function approveMerchant(id) {
   return unwrapPayload(response)
 }
 
-export async function rejectMerchant(id) {
-  const response = await request.put(`/admin/merchant/${id}/reject`)
+export async function rejectMerchant(id, data = {}) {
+  const response = await request.put(`/admin/merchant/${id}/reject`, data)
   return unwrapPayload(response)
 }
 
@@ -35,8 +35,8 @@ export async function approveRider(id) {
   return unwrapPayload(response)
 }
 
-export async function rejectRider(id) {
-  const response = await request.put(`/admin/rider/${id}/reject`)
+export async function rejectRider(id, data = {}) {
+  const response = await request.put(`/admin/rider/${id}/reject`, data)
   return unwrapPayload(response)
 }
 
