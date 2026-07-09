@@ -140,12 +140,15 @@ const merchantState = reactive({
   loading: false,
   error: '',
   list: [],
+  status: 'pending',
+  pagination: { page: 1, pageSize: 10, total: 0 },
 })
 
 const riderState = reactive({
   loading: false,
   error: '',
   list: [],
+  pagination: { page: 1, pageSize: 10, total: 0 },
 })
 
 const currentState = computed(() => (activeTab.value === 'merchant' ? merchantState : riderState))
@@ -331,11 +334,17 @@ async function loadMerchantList() {
   merchantState.error = ''
 
   try {
-    const result = await fetchPendingMerchants()
+    const result = await fetchPendingMerchants({
+      status: merchantState.status,
+      page: merchantState.pagination.page,
+      page_size: merchantState.pagination.pageSize,
+    })
     merchantState.list = resolveList(result).map((item) => normalizeRecord(item, 'merchant'))
+    merchantState.pagination.total = result?.total ?? result?.pagination?.total ?? 0
   } catch (error) {
     merchantState.error = error?.response?.data?.message || error?.message || '商家待审核列表加载失败'
     merchantState.list = []
+    merchantState.pagination.total = 0
   } finally {
     merchantState.loading = false
   }
@@ -346,14 +355,42 @@ async function loadRiderList() {
   riderState.error = ''
 
   try {
-    const result = await fetchPendingRiders()
+    const result = await fetchPendingRiders({
+      page: riderState.pagination.page,
+      limit: riderState.pagination.pageSize,
+    })
     riderState.list = resolveList(result).map((item) => normalizeRecord(item, 'rider'))
+    riderState.pagination.total = result?.pagination?.total ?? 0
   } catch (error) {
     riderState.error = error?.response?.data?.message || error?.message || '骑手待审核列表加载失败'
     riderState.list = []
+    riderState.pagination.total = 0
   } finally {
     riderState.loading = false
   }
+}
+
+function handleMerchantStatusChange(status) {
+  merchantState.status = status
+  merchantState.pagination.page = 1
+  loadMerchantList()
+}
+
+function handleMerchantPageChange(page) {
+  merchantState.pagination.page = page
+  loadMerchantList()
+}
+
+function handleRiderPageChange(page) {
+  riderState.pagination.page = page
+  loadRiderList()
+}
+
+function canAuditRow(row) {
+  if (row.type === 'merchant') {
+    return merchantState.status === 'pending'
+  }
+  return true
 }
 
 async function handleView(row) {
@@ -479,6 +516,15 @@ onMounted(() => {
         <el-tab-pane label="骑手审核" name="rider" />
       </el-tabs>
 
+      <div v-if="activeTab === 'merchant'" class="review-page__toolbar">
+        <el-radio-group v-model="merchantState.status" @change="handleMerchantStatusChange">
+          <el-radio-button value="pending">待审核</el-radio-button>
+          <el-radio-button value="approved">已通过</el-radio-button>
+          <el-radio-button value="rejected">已驳回</el-radio-button>
+          <el-radio-button value="all">全部</el-radio-button>
+        </el-radio-group>
+      </div>
+
       <el-alert
         v-if="currentState.error"
         :title="currentState.error"
@@ -512,12 +558,35 @@ onMounted(() => {
           <template #default="{ row }">
             <div class="review-page__actions">
               <el-button link type="primary" @click="handleView(row)">查看</el-button>
-              <el-button link type="success" @click="handleAudit(row, 'approve')">通过</el-button>
-              <el-button link type="danger" @click="handleAudit(row, 'reject')">拒绝</el-button>
+              <template v-if="canAuditRow(row)">
+                <el-button link type="success" @click="handleAudit(row, 'approve')">通过</el-button>
+                <el-button link type="danger" @click="handleAudit(row, 'reject')">拒绝</el-button>
+              </template>
             </div>
           </template>
         </el-table-column>
       </el-table>
+
+      <div class="page-shell__pagination">
+        <el-pagination
+          v-if="activeTab === 'merchant'"
+          background
+          layout="total, prev, pager, next"
+          :current-page="merchantState.pagination.page"
+          :page-size="merchantState.pagination.pageSize"
+          :total="merchantState.pagination.total"
+          @current-change="handleMerchantPageChange"
+        />
+        <el-pagination
+          v-else
+          background
+          layout="total, prev, pager, next"
+          :current-page="riderState.pagination.page"
+          :page-size="riderState.pagination.pageSize"
+          :total="riderState.pagination.total"
+          @current-change="handleRiderPageChange"
+        />
+      </div>
     </el-card>
 
     <el-drawer v-model="detailVisible" :title="detailTitle" size="520px">

@@ -25,3 +25,9 @@ export async function deleteDeliveryAgent(id) {
   const response = await request.delete(`/admin/rider/${id}`)
   return response?.data ?? response
 }
+
+// 后台骑手审核详情（站长详情复用此接口）。
+export async function fetchRiderDetail(id) {
+  const response = await request.get(`/admin/rider/${id}`)
+  return response?.data ?? response
+}

@@ -10,6 +10,11 @@ export async function fetchCurrentAdmin() {
   return unwrapPayload(response)
 }
 
+export async function fetchDispatchTicket() {
+  const response = await request.post('/admin/auth/dispatch-ticket')
+  return unwrapPayload(response)
+}
+
 export async function adminLogout() {
   const response = await request.post('/admin/auth/logout')
   return unwrapPayload(response)

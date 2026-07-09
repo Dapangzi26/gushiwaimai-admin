@@ -1,6 +1,8 @@
 <script setup>
+// 这个文件是“总后台调度总览跳转页”。
+// 先向后端申请 5 分钟有效的调度专用短期凭证，再跳转地图调度端，避免把长期 admin JWT 放进 URL。
 import { onMounted, ref } from 'vue'
-import { getStoredAuth } from '../../utils/auth'
+import { fetchDispatchTicket } from '../../api/auth'
 
 const loading = ref(true)
 const errorMessage = ref('')
@@ -13,16 +15,22 @@ function buildDispatchUrl(token) {
   return url.toString()
 }
 
-function redirectToDispatchMap() {
-  const { token } = getStoredAuth()
+async function redirectToDispatchMap() {
+  try {
+    const result = await fetchDispatchTicket()
+    const ticket = result?.ticket || result?.data?.ticket
 
-  if (!token) {
+    if (!ticket) {
+      loading.value = false
+      errorMessage.value = '未获取到调度专用凭证，请重新登录后再进入调度页'
+      return
+    }
+
+    window.location.replace(buildDispatchUrl(ticket))
+  } catch (error) {
     loading.value = false
-    errorMessage.value = '未获取到总后台真实登录态，请重新登录后再进入调度页'
-    return
+    errorMessage.value = error?.response?.data?.message || error?.message || '进入调度大屏失败，请稍后重试'
   }
-
-  window.location.replace(buildDispatchUrl(token))
 }
 
 onMounted(() => {
@@ -41,7 +49,7 @@ onMounted(() => {
         show-icon
         :closable="false"
       />
-      <div v-else class="page-placeholder">正在进入调度大屏...</div>
+      <div v-else class="page-placeholder">正在签发调度凭证并进入调度大屏...</div>
     </el-card>
   </div>
 </template>

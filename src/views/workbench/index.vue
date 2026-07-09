@@ -1,7 +1,7 @@
 <script setup>
 // 这个文件是“总后台工作台首页”。
 // 这里除了展示统计数字，还要负责把你快速带到对应业务页，不然看到了待办数字却点不进去，链路会断。
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { fetchDashboardOverview, fetchDashboardPendingCounts } from '../../api/dashboard'
 
@@ -18,7 +18,7 @@ const overviewCards = computed(() => [
     clickable: true,
     route: { path: '/orders', query: { page: '1', page_size: '10' } },
   },
-  { key: 'active_merchants', label: '活跃商家' },
+  { key: 'active_merchants', label: '活跃商家', clickable: true, route: { path: '/merchants', query: { status: 'approved', page: '1' } } },
   {
     key: 'online_riders',
     label: '在线骑手',
@@ -46,17 +46,27 @@ const pendingCards = computed(() => [
     clickable: true,
     route: { path: '/reviews', query: { tab: 'rider' } },
   },
-  { key: 'abnormal_orders', label: '异常订单' },
-  { key: 'offline_riders', label: '离线骑手' },
+  {
+    key: 'abnormal_orders',
+    label: '异常订单',
+    clickable: true,
+    route: { path: '/orders', query: { status: '7', page: '1', page_size: '10' } },
+  },
+  {
+    key: 'offline_riders',
+    label: '离线骑手',
+    clickable: true,
+    route: { path: '/riders', query: { role: 'rider', page: '1' } },
+  },
   {
     key: 'timeout_unaccepted_orders',
-    label: '超时未接单',
+    label: '待接单预警',
     clickable: true,
     route: {
       path: '/orders',
       query: {
         exception_type: 'timeout_unaccepted',
-        timeout_minutes: '1',
+        timeout_minutes: '5',
         page: '1',
         page_size: '10',
       },
@@ -98,6 +108,11 @@ async function loadDashboardData() {
 
 onMounted(() => {
   loadDashboardData()
+  window.addEventListener('gushi-admin-pending-refresh', loadDashboardData)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('gushi-admin-pending-refresh', loadDashboardData)
 })
 </script>
 

@@ -6,7 +6,9 @@ export async function fetchDashboardOverview() {
 }
 
 export async function fetchDashboardPendingCounts() {
-  const response = await request.get('/admin/dashboard/pending-counts')
+  const response = await request.get('/admin/dashboard/pending-counts', {
+    params: { timeout_minutes: 5 },
+  })
   return unwrapPayload(response)
 }
 

@@ -1,7 +1,7 @@
 import request from '../utils/request'
 
-export async function fetchPendingMerchants() {
-  const response = await request.get('/admin/merchant/pending')
+export async function fetchPendingMerchants(params = {}) {
+  const response = await request.get('/admin/merchant/pending', { params })
   return unwrapPayload(response)
 }
 
@@ -20,8 +20,8 @@ export async function rejectMerchant(id, data = {}) {
   return unwrapPayload(response)
 }
 
-export async function fetchPendingRiders() {
-  const response = await request.get('/admin/rider/pending')
+export async function fetchPendingRiders(params = {}) {
+  const response = await request.get('/admin/rider/pending', { params })
   return unwrapPayload(response)
 }
 

@@ -1,7 +1,7 @@
 import request from '../utils/request'
 
-export async function fetchFeedbackList() {
-  const response = await request.get('/admin/feedback')
+export async function fetchFeedbackList(params = {}) {
+  const response = await request.get('/admin/feedback', { params })
   return unwrapPayload(response)
 }
 

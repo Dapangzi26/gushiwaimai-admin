@@ -16,6 +16,11 @@ const listState = reactive({
   items: [],
 })
 
+const filterState = reactive({
+  status: '',
+  keyword: '',
+})
+
 const detailVisible = ref(false)
 const currentItem = ref(null)
 const detailLoading = ref(false)
@@ -65,7 +70,10 @@ async function loadFeedbackList() {
   listState.error = ''
 
   try {
-    const result = await fetchFeedbackList()
+    const result = await fetchFeedbackList({
+      status: filterState.status || undefined,
+      keyword: filterState.keyword.trim() || undefined,
+    })
     listState.items = resolveList(result).map((item) => normalizeRecord(item))
   } catch (error) {
     listState.error = getRequestErrorMessage(error, '投诉建议列表加载失败')
@@ -73,6 +81,16 @@ async function loadFeedbackList() {
   } finally {
     listState.loading = false
   }
+}
+
+function handleFilterSearch() {
+  loadFeedbackList()
+}
+
+function handleFilterReset() {
+  filterState.status = ''
+  filterState.keyword = ''
+  loadFeedbackList()
 }
 
 function getStatusLabel(status) {
@@ -142,6 +160,21 @@ onMounted(() => {
     <h1 class="page-shell__title">投诉建议</h1>
 
     <el-card class="page-shell__card feedback-page">
+      <div class="feedback-toolbar">
+        <el-select v-model="filterState.status" placeholder="处理状态" clearable style="width: 140px">
+          <el-option v-for="item in STATUS_OPTIONS" :key="item.value" :label="item.label" :value="item.value" />
+        </el-select>
+        <el-input
+          v-model="filterState.keyword"
+          placeholder="搜索内容 / 联系电话"
+          clearable
+          style="width: 220px"
+          @keyup.enter="handleFilterSearch"
+        />
+        <el-button type="primary" :loading="listState.loading" @click="handleFilterSearch">查询</el-button>
+        <el-button @click="handleFilterReset">重置</el-button>
+      </div>
+
       <el-alert
         v-if="listState.error"
         :title="listState.error"

@@ -48,7 +48,7 @@ const STATUS_OPTIONS = [
 
 const EXCEPTION_OPTIONS = [
   { label: '全部', value: '' },
-  { label: '超时未接单', value: 'timeout_unaccepted' },
+  { label: '待接单预警', value: 'timeout_unaccepted' },
 ]
 
 const REFUND_STATUS_OPTIONS = [

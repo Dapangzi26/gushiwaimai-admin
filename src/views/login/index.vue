@@ -3,6 +3,7 @@ import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../../store/modules/auth'
+import { unlockAudioPlayback } from '../../utils/admin-reminder-center'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -28,7 +29,12 @@ async function handleLogin() {
     await formRef.value.validate()
     submitting.value = true
     await authStore.login(form)
-    ElMessage.success('登录成功')
+    try {
+      await unlockAudioPlayback()
+    } catch (error) {
+      console.warn('[login] unlock audio failed:', error)
+    }
+    ElMessage.success('登录成功，待接单语音提醒已尝试开启')
     router.replace('/workbench')
   } catch (error) {
     if (!error?.response && error?.message && error?.message !== 'validation failed') {
