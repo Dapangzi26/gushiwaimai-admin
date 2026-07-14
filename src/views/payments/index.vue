@@ -35,7 +35,6 @@
           <el-option label="全部" value="" />
           <el-option label="县城外卖" value="county_takeout" />
           <el-option label="乡镇外卖" value="town_takeout" />
-          <el-option label="跑腿订单" value="errand" />
         </el-select>
         <el-input
           v-model="keyword"

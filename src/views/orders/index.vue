@@ -32,7 +32,6 @@ const BUSINESS_OPTIONS = [
   { label: '全部', value: '' },
   { label: '县城外卖', value: 'county_takeout' },
   { label: '乡镇外卖', value: 'town_takeout' },
-  { label: '跑腿订单', value: 'errand' },
 ]
 
 const STATUS_OPTIONS = [
@@ -79,6 +78,11 @@ const detailLoading = ref(false)
 const detailError = ref('')
 const detailData = ref(null)
 const auditLoading = ref(false)
+const refundApproveDialog = reactive({
+  visible: false,
+  orderId: null,
+  responsibilityType: 'rider',
+})
 
 const orderFilters = reactive(createDefaultOrderFilters())
 const refundFilters = reactive(createDefaultRefundFilters())
@@ -218,10 +222,17 @@ function normalizeRefundRecord(item) {
     reason_type: item?.reason_type || '--',
     description: item?.description || '--',
     reject_reason: item?.reject_reason || '',
+    user_claim_direction: item?.user_claim_direction || '',
     responsibility_type: item?.responsibility_type || '',
+    responsibility_label: item?.responsibility_label || '',
     apply_source: item?.apply_source || '',
     audit_role: item?.audit_role || '',
+    audit_role_label: item?.audit_role_label || '',
     audit_note: item?.audit_note || '',
+    merchant_notified_at: item?.merchant_notified_at || '',
+    merchant_audit_deadline_at: item?.merchant_audit_deadline_at || '',
+    is_merchant_audit_overdue: Boolean(item?.is_merchant_audit_overdue),
+    is_merchant_escalated: Boolean(item?.is_merchant_escalated),
     success_at: item?.success_at || '',
     customer_town: item?.customer_town || item?.merchant?.town_name || '--',
     buyer_name: item?.buyer?.nickname || '--',
@@ -574,22 +585,25 @@ async function handleApproveRefund(targetRow = null) {
     return
   }
 
-  await ElMessageBox.confirm(
-    '确认通过这笔售后退款申请吗？通过后会按后端规则完成退款和责任结算。',
-    '通过退款申请',
-    {
-      confirmButtonText: '确认通过',
-      cancelButtonText: '取消',
-      type: 'warning',
-    },
-  )
+  refundApproveDialog.orderId = currentOrderId
+  refundApproveDialog.responsibilityType = 'rider'
+  refundApproveDialog.visible = true
+}
+
+async function submitRefundApprove() {
+  const currentOrderId = refundApproveDialog.orderId
+  if (!currentOrderId) {
+    return
+  }
 
   auditLoading.value = true
   try {
     await auditAdminRefund(currentOrderId, {
       action: 'approve',
-      audit_note: '总后台通过售后退款申请',
+      responsibility_type: refundApproveDialog.responsibilityType,
+      audit_note: `总后台通过售后退款申请（责任：${refundApproveDialog.responsibilityType === 'merchant' ? '商家' : '配送'}）`,
     })
+    refundApproveDialog.visible = false
     ElMessage.success('已通过退款申请')
     await refreshAfterAudit(currentOrderId)
   } finally {
@@ -729,7 +743,6 @@ function resolveExceptionTags(row) {
 }
 
 function getBusinessTagType(label) {
-  if (label.includes('跑腿')) return 'warning'
   if (label.includes('乡镇')) return 'success'
   return 'primary'
 }
@@ -772,11 +785,31 @@ function getRefundAuditChannelLabel(refund) {
     return '后台取消审核'
   }
 
+  if (refund.audit_role === 'merchant') {
+    return refund.is_merchant_audit_overdue ? '待商家处理（已超时）' : '待商家处理'
+  }
+
+  if (refund.audit_role === 'station') {
+    return '待站长审核'
+  }
+
+  if (refund.is_merchant_escalated || String(refund.audit_note || '').includes('商家超时')) {
+    return '商家超时转平台'
+  }
+
   if (refund.audit_role === 'admin' && String(refund.audit_note || '').includes('转平台')) {
     return '站长拒绝后转平台'
   }
 
   return '平台直接处理'
+}
+
+function isRefundRowHighlighted(row) {
+  return Boolean(row?.is_merchant_audit_overdue || row?.is_merchant_escalated)
+}
+
+function getRefundRowClassName({ row }) {
+  return isRefundRowHighlighted(row) ? 'orders-table__row--highlight' : ''
 }
 
 function getRefundAuditBannerTitle(refund) {
@@ -1115,6 +1148,7 @@ watch(
           border
           class="orders-table"
           empty-text="暂无退款数据"
+          :row-class-name="getRefundRowClassName"
         >
           <el-table-column prop="refund_no" label="退款单号" min-width="180" show-overflow-tooltip />
           <el-table-column prop="order_no" label="订单号" min-width="180" show-overflow-tooltip />
@@ -1139,9 +1173,11 @@ watch(
             </template>
           </el-table-column>
 
-          <el-table-column label="处理来源" min-width="160">
+          <el-table-column label="处理来源" min-width="180">
             <template #default="{ row }">
-              <span>{{ getRefundAuditChannelLabel(row) }}</span>
+              <el-tag :type="isRefundRowHighlighted(row) ? 'danger' : 'info'">
+                {{ getRefundAuditChannelLabel(row) }}
+              </el-tag>
             </template>
           </el-table-column>
 
@@ -1223,7 +1259,7 @@ watch(
             </div>
             <div class="orders-detail__audit-extra">
               <span>处理来源：{{ getRefundAuditChannelLabel(pendingAfterSaleRefund) }}</span>
-              <span>责任归属：{{ getResponsibilityTypeLabel(pendingAfterSaleRefund.responsibility_type) }}</span>
+              <span>用户申诉：{{ pendingAfterSaleRefund.responsibility_label || getResponsibilityTypeLabel(pendingAfterSaleRefund.user_claim_direction || pendingAfterSaleRefund.responsibility_type) }}</span>
             </div>
             <div class="orders-detail__audit-actions">
               <el-button type="primary" :loading="auditLoading" @click="handleApproveRefund()">通过退款</el-button>
@@ -1271,10 +1307,44 @@ watch(
         <el-empty v-else description="暂无详情数据" />
       </div>
     </el-drawer>
+
+    <el-dialog
+      v-model="refundApproveDialog.visible"
+      title="通过退款申请"
+      width="460px"
+      :close-on-click-modal="false"
+    >
+      <p class="orders-dialog__tip">请选择本次退款的责任归属，系统将按选定口径完成结算。</p>
+      <el-radio-group v-model="refundApproveDialog.responsibilityType" class="orders-dialog__radio-group">
+        <el-radio value="rider">配送责（商家照常结算，配送方承担商品赔偿）</el-radio>
+        <el-radio value="merchant">商家责（商家承担损失，已送达时补骑手配送费）</el-radio>
+      </el-radio-group>
+      <template #footer>
+        <el-button @click="refundApproveDialog.visible = false">取消</el-button>
+        <el-button type="primary" :loading="auditLoading" @click="submitRefundApprove">确认通过</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <style scoped>
+.orders-table__row--highlight > td {
+  background: #fff7e6 !important;
+}
+
+.orders-dialog__tip {
+  margin: 0 0 16px;
+  color: #606266;
+  line-height: 1.6;
+}
+
+.orders-dialog__radio-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+
 .orders-page {
   border-radius: 12px;
 }
