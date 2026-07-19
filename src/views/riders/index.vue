@@ -92,9 +92,21 @@
             {{ formatTime(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column v-if="activeRole === 'merchant_delivery'" label="操作" width="140" fixed="right">
+        <el-table-column label="操作" width="200" fixed="right">
           <template #default="{ row }">
-            <el-button type="danger" link @click="handleDelete(row)">删除</el-button>
+            <el-button type="primary" link @click="handleViewDetail(row)">详情</el-button>
+            <template v-if="Number(row.rider_audit_status) === 0">
+              <el-button type="success" link @click="handleAudit(row, 'approve')">通过</el-button>
+              <el-button type="danger" link @click="handleAudit(row, 'reject')">拒绝</el-button>
+            </template>
+            <el-button
+              v-if="activeRole === 'merchant_delivery'"
+              type="danger"
+              link
+              @click="handleDelete(row)"
+            >
+              删除
+            </el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -110,6 +122,32 @@
         />
       </div>
     </el-card>
+
+    <el-drawer v-model="detailVisible" :title="detailTitle" size="480px" destroy-on-close>
+      <div v-loading="detailLoading">
+        <el-alert v-if="detailError" :title="detailError" type="error" show-icon :closable="false" />
+        <el-descriptions v-else-if="detailData" :column="1" border>
+          <el-descriptions-item label="ID">{{ detailData.id }}</el-descriptions-item>
+          <el-descriptions-item label="昵称">{{ detailData.nickname || '--' }}</el-descriptions-item>
+          <el-descriptions-item label="手机号">{{ detailData.phone || '--' }}</el-descriptions-item>
+          <el-descriptions-item label="身份类型">{{ detailData.identity_type || '--' }}</el-descriptions-item>
+          <el-descriptions-item label="配送范围">{{ getDeliveryScopeLabel(detailData.delivery_scope) }}</el-descriptions-item>
+          <el-descriptions-item label="所属乡镇">{{ detailData.town_name || detailData.rider_town || '--' }}</el-descriptions-item>
+          <el-descriptions-item v-if="detailData.merchant_name" label="所属店铺">{{ detailData.merchant_name }}</el-descriptions-item>
+          <el-descriptions-item label="审核状态">{{ detailData.audit_status_text || getAuditStatusLabel(detailData.rider_audit_status) }}</el-descriptions-item>
+          <el-descriptions-item label="审核人">{{ detailData.audited_by_name || '--' }}</el-descriptions-item>
+          <el-descriptions-item v-if="detailData.reject_reason" label="驳回原因">{{ detailData.reject_reason }}</el-descriptions-item>
+          <el-descriptions-item label="创建时间">{{ formatTime(detailData.created_at) }}</el-descriptions-item>
+        </el-descriptions>
+      </div>
+      <template #footer>
+        <template v-if="Number(detailData?.rider_audit_status) === 0">
+          <el-button type="success" :loading="actionLoading" @click="handleAudit(detailData, 'approve')">通过</el-button>
+          <el-button type="danger" :loading="actionLoading" @click="handleAudit(detailData, 'reject')">拒绝</el-button>
+        </template>
+        <el-button @click="detailVisible = false">关闭</el-button>
+      </template>
+    </el-drawer>
   </div>
 </template>
 
@@ -119,7 +157,8 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { deleteDeliveryAgent, fetchAdminRiders } from '../../api/riders'
+import { deleteDeliveryAgent, approveRider, fetchAdminRiders, fetchRiderDetail, rejectRider } from '../../api/riders'
+import { getRequestErrorMessage } from '../../utils/http'
 
 const route = useRoute()
 const router = useRouter()
@@ -135,6 +174,13 @@ const pagination = reactive({
   pageSize: DEFAULT_PAGE_SIZE,
   total: 0,
 })
+
+const detailVisible = ref(false)
+const detailLoading = ref(false)
+const detailError = ref('')
+const detailData = ref(null)
+const detailTitle = ref('骑手详情')
+const actionLoading = ref(false)
 
 // 页面副标题跟着当前角色切换，告诉你这块到底在看哪一类配送账号。
 const pageSubtitle = computed(() =>
@@ -220,7 +266,7 @@ async function loadList() {
     list.value = Array.isArray(payload?.list) ? payload.list : []
     pagination.total = resolveTotal(payload, list.value.length)
   } catch (error) {
-    loadError.value = error?.response?.data?.message || error?.message || '骑手列表加载失败'
+    loadError.value = getRequestErrorMessage(error, '骑手列表加载失败')
     list.value = []
     pagination.total = 0
   } finally {
@@ -270,6 +316,67 @@ async function handleDelete(row) {
   }
 
   await loadList()
+}
+
+async function handleViewDetail(row) {
+  detailVisible.value = true
+  detailLoading.value = true
+  detailError.value = ''
+  detailData.value = null
+  detailTitle.value = `骑手详情 · ${row.nickname || row.id}`
+
+  try {
+    detailData.value = await fetchRiderDetail(row.id)
+  } catch (error) {
+    detailError.value = getRequestErrorMessage(error, '骑手详情加载失败')
+  } finally {
+    detailLoading.value = false
+  }
+}
+
+async function handleAudit(row, action) {
+  if (!row?.id) return
+
+  const actionText = action === 'approve' ? '通过' : '拒绝'
+  let payload = {}
+
+  if (action === 'reject') {
+    const promptResult = await ElMessageBox.prompt('请填写驳回原因', '拒绝骑手入驻', {
+      confirmButtonText: '确认拒绝',
+      cancelButtonText: '取消',
+      inputPlaceholder: '驳回原因会展示给骑手',
+      inputValidator: (val) => !!(val && String(val).trim()) || '请填写驳回原因',
+    }).catch(() => null)
+
+    if (!promptResult) return
+    payload = { reject_reason: String(promptResult.value || '').trim() }
+  } else {
+    try {
+      await ElMessageBox.confirm(`确认通过骑手「${row.nickname || row.id}」的入驻申请？`, '审核确认', {
+        confirmButtonText: '通过',
+        cancelButtonText: '取消',
+        type: 'success',
+      })
+    } catch {
+      return
+    }
+  }
+
+  actionLoading.value = true
+  try {
+    if (action === 'approve') {
+      await approveRider(row.id)
+    } else {
+      await rejectRider(row.id, payload)
+    }
+    ElMessage.success(`已${actionText}`)
+    detailVisible.value = false
+    await loadList()
+  } catch (error) {
+    ElMessage.error(getRequestErrorMessage(error, `${actionText}失败`))
+  } finally {
+    actionLoading.value = false
+  }
 }
 
 function getDeliveryScopeLabel(scope) {

@@ -4,7 +4,7 @@
     <div class="page-shell__header">
       <div>
         <h1 class="page-shell__title">商家管理</h1>
-        <p class="page-shell__subtitle">查看全部商家申请与已上线店铺；待审商家可在本页查看详情，审核操作请前往审核中心。</p>
+        <p class="page-shell__subtitle">查看全部商家申请与已上线店铺；待审商家可在本页直接审核，也可前往审核中心批量处理。</p>
       </div>
       <div class="page-shell__actions">
         <el-button type="primary" plain @click="goReviews">前往审核中心</el-button>
@@ -70,9 +70,17 @@
             {{ formatTime(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="100" fixed="right">
+        <el-table-column label="操作" width="160" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" link @click="handleViewDetail(row)">详情</el-button>
+            <el-button
+              v-if="Number(row.audit_status) === 0"
+              type="success"
+              link
+              @click="handleAudit(row, 'approve')"
+            >
+              通过
+            </el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -115,13 +123,14 @@
         </el-descriptions>
       </div>
       <template #footer>
-        <el-button
-          v-if="Number(detailData?.audit_status) === 0"
-          type="primary"
-          @click="goReviewsWithMerchant"
-        >
-          去审核中心处理
-        </el-button>
+        <template v-if="Number(detailData?.audit_status) === 0">
+          <el-button type="success" :loading="actionLoading" @click="handleAudit(detailData, 'approve')">
+            通过
+          </el-button>
+          <el-button type="danger" :loading="actionLoading" @click="handleAudit(detailData, 'reject')">
+            拒绝
+          </el-button>
+        </template>
         <el-button @click="detailVisible = false">关闭</el-button>
       </template>
     </el-drawer>
@@ -130,10 +139,16 @@
 
 <script setup>
 // 这个文件是“总后台商家管理页”逻辑。
-// 通过 /admin/merchant/pending 接口按 status 分页拉取全量商家，详情只读；审核动作仍走审核中心。
+// 通过 /admin/merchant/* 拉取列表与详情，待审商家支持本页直接审核。
 import { onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { fetchAdminMerchantDetail, fetchAdminMerchants } from '../../api/merchant'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  approveMerchant,
+  fetchAdminMerchantDetail,
+  fetchAdminMerchants,
+  rejectMerchant,
+} from '../../api/merchant'
 import { getRequestErrorMessage } from '../../utils/http'
 
 const route = useRoute()
@@ -152,6 +167,7 @@ const detailLoading = ref(false)
 const detailError = ref('')
 const detailData = ref(null)
 const detailTitle = ref('商家详情')
+const actionLoading = ref(false)
 
 function normalizeStatus(value) {
   const allowed = ['all', 'pending', 'approved', 'rejected']
@@ -248,9 +264,49 @@ function goReviews() {
   router.push({ path: '/reviews', query: { tab: 'merchant' } })
 }
 
-function goReviewsWithMerchant() {
-  router.push({ path: '/reviews', query: { tab: 'merchant' } })
-  detailVisible.value = false
+async function handleAudit(row, action) {
+  if (!row?.id) return
+
+  const actionText = action === 'approve' ? '通过' : '拒绝'
+  let payload = {}
+
+  if (action === 'reject') {
+    const promptResult = await ElMessageBox.prompt('请填写驳回原因', '拒绝商家入驻', {
+      confirmButtonText: '确认拒绝',
+      cancelButtonText: '取消',
+      inputPlaceholder: '驳回原因会展示给商家',
+      inputValidator: (val) => !!(val && String(val).trim()) || '请填写驳回原因',
+    }).catch(() => null)
+
+    if (!promptResult) return
+    payload = { reject_reason: String(promptResult.value || '').trim() }
+  } else {
+    try {
+      await ElMessageBox.confirm(`确认通过商家「${row.store_name || row.id}」的入驻申请？`, '审核确认', {
+        confirmButtonText: '通过',
+        cancelButtonText: '取消',
+        type: 'success',
+      })
+    } catch {
+      return
+    }
+  }
+
+  actionLoading.value = true
+  try {
+    if (action === 'approve') {
+      await approveMerchant(row.id)
+    } else {
+      await rejectMerchant(row.id, payload)
+    }
+    ElMessage.success(`已${actionText}`)
+    detailVisible.value = false
+    await loadList()
+  } catch (error) {
+    ElMessage.error(getRequestErrorMessage(error, `${actionText}失败`))
+  } finally {
+    actionLoading.value = false
+  }
 }
 
 function initFromRoute() {

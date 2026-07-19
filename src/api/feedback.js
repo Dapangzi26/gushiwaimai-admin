@@ -1,4 +1,5 @@
 import request from '../utils/request'
+import { unwrapPayload } from './helpers'
 
 export async function fetchFeedbackList(params = {}) {
   const response = await request.get('/admin/feedback', { params })
@@ -13,8 +14,4 @@ export async function fetchFeedbackDetail(id) {
 export async function updateFeedbackStatus(id, status) {
   const response = await request.put(`/admin/feedback/${id}/status`, { status })
   return unwrapPayload(response)
-}
-
-function unwrapPayload(response) {
-  return response?.data ?? response
 }

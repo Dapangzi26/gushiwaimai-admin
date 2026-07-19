@@ -1,4 +1,5 @@
 import request from '../utils/request'
+import { unwrapPayload } from './helpers'
 
 export async function adminLogin(payload) {
   const response = await request.post('/admin/auth/login', payload)
@@ -18,8 +19,4 @@ export async function fetchDispatchTicket() {
 export async function adminLogout() {
   const response = await request.post('/admin/auth/logout')
   return unwrapPayload(response)
-}
-
-function unwrapPayload(response) {
-  return response?.data ?? response
 }

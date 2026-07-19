@@ -7,6 +7,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   approveMerchant,
   approveRider,
+  fetchAdminRiders,
   fetchMerchantDetail,
   fetchPendingMerchants,
   fetchPendingRiders,
@@ -148,6 +149,7 @@ const riderState = reactive({
   loading: false,
   error: '',
   list: [],
+  status: 'pending',
   pagination: { page: 1, pageSize: 10, total: 0 },
 })
 
@@ -355,12 +357,31 @@ async function loadRiderList() {
   riderState.error = ''
 
   try {
-    const result = await fetchPendingRiders({
+    if (riderState.status === 'pending') {
+      const result = await fetchPendingRiders({
+        page: riderState.pagination.page,
+        limit: riderState.pagination.pageSize,
+      })
+      riderState.list = resolveList(result).map((item) => normalizeRecord(item, 'rider'))
+      riderState.pagination.total = result?.pagination?.total ?? result?.total ?? 0
+      return
+    }
+
+    const result = await fetchAdminRiders({
+      role: 'rider',
       page: riderState.pagination.page,
       limit: riderState.pagination.pageSize,
     })
-    riderState.list = resolveList(result).map((item) => normalizeRecord(item, 'rider'))
-    riderState.pagination.total = result?.pagination?.total ?? 0
+    let items = resolveList(result).map((item) => normalizeRecord(item, 'rider'))
+
+    if (riderState.status === 'approved') {
+      items = items.filter((item) => Number(item.raw?.rider_audit_status) === 1)
+    } else if (riderState.status === 'rejected') {
+      items = items.filter((item) => Number(item.raw?.rider_audit_status) === 2)
+    }
+
+    riderState.list = items
+    riderState.pagination.total = result?.pagination?.total ?? result?.total ?? 0
   } catch (error) {
     riderState.error = error?.response?.data?.message || error?.message || '骑手待审核列表加载失败'
     riderState.list = []
@@ -368,6 +389,12 @@ async function loadRiderList() {
   } finally {
     riderState.loading = false
   }
+}
+
+function handleRiderStatusChange(status) {
+  riderState.status = status
+  riderState.pagination.page = 1
+  loadRiderList()
 }
 
 function handleMerchantStatusChange(status) {
@@ -390,7 +417,7 @@ function canAuditRow(row) {
   if (row.type === 'merchant') {
     return merchantState.status === 'pending'
   }
-  return true
+  return riderState.status === 'pending'
 }
 
 async function handleView(row) {
@@ -525,6 +552,16 @@ onMounted(() => {
         </el-radio-group>
       </div>
 
+      <div v-else class="review-page__toolbar">
+        <el-radio-group v-model="riderState.status" @change="handleRiderStatusChange">
+          <el-radio-button value="pending">待审核</el-radio-button>
+          <el-radio-button value="approved">已通过</el-radio-button>
+          <el-radio-button value="rejected">已驳回</el-radio-button>
+          <el-radio-button value="all">全部</el-radio-button>
+        </el-radio-group>
+        <span class="review-page__hint">已通过/已驳回基于平台骑手列表筛选；自配送员待审含在「待审核」中。</span>
+      </div>
+
       <el-alert
         v-if="currentState.error"
         :title="currentState.error"
@@ -620,3 +657,18 @@ onMounted(() => {
     </el-drawer>
   </div>
 </template>
+
+<style scoped>
+.review-page__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.review-page__hint {
+  color: #909399;
+  font-size: 12px;
+}
+</style>

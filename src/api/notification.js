@@ -1,4 +1,5 @@
 import request from '../utils/request'
+import { unwrapPayload } from './helpers'
 
 export async function fetchNotifications(params) {
   const response = await request.get('/admin/notifications', { params })
@@ -35,8 +36,4 @@ export async function toggleNotificationPin(id, isPinned) {
     is_pinned: isPinned,
   })
   return unwrapPayload(response)
-}
-
-function unwrapPayload(response) {
-  return response?.data ?? response
 }

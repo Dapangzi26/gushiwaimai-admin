@@ -4,6 +4,9 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { fetchDashboardOverview, fetchDashboardPendingCounts } from '../../api/dashboard'
+import { fetchPendingRefundCount } from '../../api/orders'
+import { fetchPendingWithdrawCount } from '../../api/withdraw'
+import { getRequestErrorMessage } from '../../utils/http'
 
 const router = useRouter()
 const overview = ref({})
@@ -72,6 +75,18 @@ const pendingCards = computed(() => [
       },
     },
   },
+  {
+    key: 'pending_withdrawals',
+    label: '待处理提现',
+    clickable: true,
+    route: { path: '/payments', query: { tab: 'withdraw' } },
+  },
+  {
+    key: 'pending_refunds',
+    label: '待仲裁退款',
+    clickable: true,
+    route: { path: '/orders', query: { tab: 'refunds', refund_status: 'pending', page: '1', limit: '10' } },
+  },
 ])
 
 function formatValue(source, key) {
@@ -92,15 +107,21 @@ async function loadDashboardData() {
   loadError.value = ''
 
   try {
-    const [overviewResult, pendingResult] = await Promise.all([
+    const [overviewResult, pendingResult, withdrawCount, refundCount] = await Promise.all([
       fetchDashboardOverview(),
       fetchDashboardPendingCounts(),
+      fetchPendingWithdrawCount().catch(() => null),
+      fetchPendingRefundCount().catch(() => null),
     ])
 
     overview.value = overviewResult || {}
-    pendingCounts.value = pendingResult || {}
+    pendingCounts.value = {
+      ...(pendingResult || {}),
+      pending_withdrawals: withdrawCount ?? '--',
+      pending_refunds: refundCount ?? '--',
+    }
   } catch (error) {
-    loadError.value = error?.response?.data?.message || error?.message || '工作台数据加载失败'
+    loadError.value = getRequestErrorMessage(error, '工作台数据加载失败')
   } finally {
     loading.value = false
   }

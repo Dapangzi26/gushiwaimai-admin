@@ -111,11 +111,22 @@ const pendingCancelRefund = computed(() => {
   return refunds.find((item) => item?.apply_source === 'cancel' && Number(item.status) === 0) || null
 })
 
-// 售后退款就是用户在“骑手已接单 / 配送中”阶段发起的退款。
-// 这里不区分县城直审还是乡镇转平台，只要后端判定还处于待处理，平台这边就能看见并处理。
+// 售后退款：仅当平台有权仲裁时才在详情里展示操作区。
 const pendingAfterSaleRefund = computed(() => {
   const refunds = Array.isArray(detailData.value?.refunds) ? detailData.value.refunds : []
-  return refunds.find((item) => item?.apply_source === 'after_sale' && Number(item.status) === 0) || null
+  const pending = refunds.find((item) => item?.apply_source === 'after_sale' && Number(item.status) === 0) || null
+  if (!pending) return null
+  return canAdminArbitrateRefund({
+    ...pending,
+    order_type: pending.order_type || detailData.value?.order_type || '',
+  }) ? pending : null
+})
+
+const waitingExternalAfterSaleRefund = computed(() => {
+  const refunds = Array.isArray(detailData.value?.refunds) ? detailData.value.refunds : []
+  const pending = refunds.find((item) => item?.apply_source === 'after_sale' && Number(item.status) === 0) || null
+  if (!pending || pendingAfterSaleRefund.value) return null
+  return pending
 })
 
 const detailSections = computed(() => {
@@ -239,6 +250,7 @@ function normalizeRefundRecord(item) {
     buyer_phone: item?.buyer?.phone || '',
     merchant_name: item?.merchant?.name || '--',
     merchant_town_name: item?.merchant?.town_name || '--',
+    order_type: item?.order_type || '',
     raw: item,
   }
 }
@@ -579,9 +591,15 @@ async function handleRejectCancel() {
 }
 
 async function handleApproveRefund(targetRow = null) {
+  const row = targetRow || pendingAfterSaleRefund.value
   const currentOrderId = targetRow?.order_id || detailData.value?.id
   if (!currentOrderId) {
     ElMessage.warning('当前没有待处理的退款申请')
+    return
+  }
+
+  if (row && !canAdminArbitrateRefund(row)) {
+    ElMessage.warning('该退款尚在商家或站长审核阶段，平台暂不可仲裁')
     return
   }
 
@@ -612,9 +630,15 @@ async function submitRefundApprove() {
 }
 
 async function handleRejectRefund(targetRow = null) {
+  const row = targetRow || pendingAfterSaleRefund.value
   const currentOrderId = targetRow?.order_id || detailData.value?.id
   if (!currentOrderId) {
     ElMessage.warning('当前没有待处理的退款申请')
+    return
+  }
+
+  if (row && !canAdminArbitrateRefund(row)) {
+    ElMessage.warning('该退款尚在商家或站长审核阶段，平台暂不可仲裁')
     return
   }
 
@@ -806,6 +830,29 @@ function getRefundAuditChannelLabel(refund) {
 
 function isRefundRowHighlighted(row) {
   return Boolean(row?.is_merchant_audit_overdue || row?.is_merchant_escalated)
+}
+
+/** 平台是否可仲裁该笔售后退款（与后端 assertPlatformCanArbitrateRefund 对齐） */
+function canAdminArbitrateRefund(row) {
+  if (!row || Number(row.status) !== 0) {
+    return false
+  }
+
+  if (row.apply_source && row.apply_source !== 'after_sale') {
+    return false
+  }
+
+  const auditRole = String(row.audit_role || '').trim().toLowerCase()
+  if (auditRole === 'merchant' || auditRole === 'station') {
+    return false
+  }
+
+  const orderType = String(row.order_type || row.raw?.order_type || '').trim().toLowerCase()
+  if (!auditRole && orderType === 'town') {
+    return false
+  }
+
+  return true
 }
 
 function getRefundRowClassName({ row }) {
@@ -1198,7 +1245,7 @@ watch(
               <div class="orders-actions">
                 <el-button link type="primary" @click="handleViewRefund(row)">查看订单</el-button>
                 <el-button
-                  v-if="Number(row.status) === 0"
+                  v-if="Number(row.status) === 0 && canAdminArbitrateRefund(row)"
                   link
                   type="success"
                   :loading="auditLoading"
@@ -1207,7 +1254,7 @@ watch(
                   通过退款
                 </el-button>
                 <el-button
-                  v-if="Number(row.status) === 0"
+                  v-if="Number(row.status) === 0 && canAdminArbitrateRefund(row)"
                   link
                   type="danger"
                   :loading="auditLoading"
@@ -1249,6 +1296,16 @@ watch(
             <div class="orders-detail__audit-actions">
               <el-button type="primary" :loading="auditLoading" @click="handleApproveCancel">通过取消</el-button>
               <el-button type="danger" plain :loading="auditLoading" @click="handleRejectCancel">驳回申请</el-button>
+            </div>
+          </div>
+
+          <div v-if="waitingExternalAfterSaleRefund" class="orders-detail__audit-bar orders-detail__audit-bar--waiting">
+            <div class="orders-detail__audit-title">{{ getRefundAuditChannelLabel(waitingExternalAfterSaleRefund) }}</div>
+            <div class="orders-detail__audit-desc">
+              {{ getRefundAuditBannerDescription(waitingExternalAfterSaleRefund) }}
+            </div>
+            <div class="orders-detail__audit-desc orders-detail__audit-desc--muted">
+              平台需等商家或站长处理完毕（或转交平台）后才能仲裁。
             </div>
           </div>
 
@@ -1404,6 +1461,20 @@ watch(
 .orders-detail__audit-bar--refund {
   border-color: #91caff;
   background: #f0f7ff;
+}
+
+.orders-detail__audit-bar--waiting {
+  border-color: #ffd591;
+  background: #fff7e6;
+}
+
+.orders-detail__audit-bar--waiting .orders-detail__audit-title {
+  color: #d46b08;
+}
+
+.orders-detail__audit-desc--muted {
+  color: #8c8c8c;
+  font-size: 13px;
 }
 
 .orders-detail__audit-title {

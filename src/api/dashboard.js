@@ -1,4 +1,5 @@
 import request from '../utils/request'
+import { unwrapPayload } from './helpers'
 
 export async function fetchDashboardOverview() {
   const response = await request.get('/admin/dashboard/overview')
@@ -10,8 +11,4 @@ export async function fetchDashboardPendingCounts() {
     params: { timeout_minutes: 5 },
   })
   return unwrapPayload(response)
-}
-
-function unwrapPayload(response) {
-  return response?.data ?? response
 }
