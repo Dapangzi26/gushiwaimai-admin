@@ -67,7 +67,11 @@
         </el-alert>
 
         <el-table :data="list" v-loading="loading" border empty-text="暂无已完成订单">
-          <el-table-column prop="order_no" label="订单号" min-width="180" show-overflow-tooltip />
+          <el-table-column label="订单号" min-width="220" show-overflow-tooltip>
+            <template #default="{ row }">
+              {{ formatOrderNoDisplay(row.order_no) || row.order_no || '--' }}
+            </template>
+          </el-table-column>
           <el-table-column label="业务" width="100">
             <template #default="{ row }">{{ row.business_label || '--' }}</template>
           </el-table-column>
@@ -187,7 +191,7 @@
       <div v-loading="detailLoading">
         <el-alert v-if="detailError" :title="detailError" type="error" show-icon :closable="false" />
         <el-descriptions v-else-if="detailData" :column="1" border>
-          <el-descriptions-item label="订单号">{{ detailData.order_no }}</el-descriptions-item>
+          <el-descriptions-item label="订单号">{{ formatOrderNoDisplay(detailData.order_no) || detailData.order_no }}</el-descriptions-item>
           <el-descriptions-item label="业务类型">{{ detailData.business_label }}</el-descriptions-item>
           <el-descriptions-item label="支付渠道">{{ detailData.payment_channel || '--' }}</el-descriptions-item>
           <el-descriptions-item label="订单总额">¥ {{ detailData.total_amount ?? '--' }}</el-descriptions-item>
@@ -221,6 +225,7 @@ import {
   rejectRiderWithdrawal,
 } from '../../api/withdraw'
 import { getRequestErrorMessage } from '../../utils/http'
+import { formatOrderNoDisplay } from '../../utils/orderNo.js'
 
 const router = useRouter()
 const route = useRoute()

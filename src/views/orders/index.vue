@@ -15,6 +15,7 @@ import {
   fetchAdminRefunds,
 } from '../../api/orders'
 import { getRequestErrorMessage } from '../../utils/http'
+import { formatOrderNoDisplay } from '../../utils/orderNo.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -1098,7 +1099,11 @@ watch(
             </template>
           </el-table-column>
 
-          <el-table-column prop="order_no" label="订单号" min-width="200" show-overflow-tooltip />
+          <el-table-column label="订单号" min-width="220" show-overflow-tooltip>
+            <template #default="{ row }">
+              {{ formatOrderNoDisplay(row.order_no) || row.order_no || '--' }}
+            </template>
+          </el-table-column>
           <el-table-column prop="merchant_name" label="商家" min-width="160" show-overflow-tooltip />
 
           <el-table-column label="用户/联系人" min-width="170" show-overflow-tooltip>
@@ -1198,7 +1203,11 @@ watch(
           :row-class-name="getRefundRowClassName"
         >
           <el-table-column prop="refund_no" label="退款单号" min-width="180" show-overflow-tooltip />
-          <el-table-column prop="order_no" label="订单号" min-width="180" show-overflow-tooltip />
+          <el-table-column label="订单号" min-width="220" show-overflow-tooltip>
+            <template #default="{ row }">
+              {{ formatOrderNoDisplay(row.order_no) || row.order_no || '--' }}
+            </template>
+          </el-table-column>
 
           <el-table-column label="用户" min-width="170">
             <template #default="{ row }">
