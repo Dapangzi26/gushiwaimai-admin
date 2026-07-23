@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../../store/modules/auth'
 import { unlockAudioPlayback } from '../../utils/admin-reminder-center'
+import { getRequestErrorMessage } from '../../utils/http'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -37,8 +38,8 @@ async function handleLogin() {
     ElMessage.success('登录成功，待接单语音提醒已尝试开启')
     router.replace('/workbench')
   } catch (error) {
-    if (!error?.response && error?.message && error?.message !== 'validation failed') {
-      ElMessage.error(error.message)
+    if (error?.message !== 'validation failed') {
+      ElMessage.error(getRequestErrorMessage(error, '登录失败'))
     }
   } finally {
     submitting.value = false

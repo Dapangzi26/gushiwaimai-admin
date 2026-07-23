@@ -25,32 +25,47 @@
         :closable="false"
         class="page-shell__alert"
         title="数据来源说明"
-        description="分账金额在列表中点击「分账详情」查看；数据来自订单详情接口。"
+        description="点击列表「详情」可查看订单分账明细；数据来自已完成订单列表。"
       />
 
       <div class="payment-stats">
         <el-card v-for="item in summaryCards" :key="item.key" class="payment-stat-card" shadow="never">
           <div class="payment-stat-card__label">{{ item.label }}</div>
-          <div class="payment-stat-card__value">¥ {{ item.value }}</div>
+          <div class="payment-stat-card__value" :class="`payment-stat-card__value--${item.format}`">
+            <template v-if="item.format === 'money'">¥ {{ item.value }}</template>
+            <template v-else-if="item.format === 'count'">
+              {{ item.value }}<span v-if="item.value !== '--'" class="payment-stat-card__unit">{{ item.unit }}</span>
+            </template>
+            <template v-else>{{ item.value }}</template>
+          </div>
         </el-card>
       </div>
 
       <el-card class="page-shell__card">
         <div class="payment-toolbar">
+          <el-input
+            v-model="filters.orderNo"
+            placeholder="订单号"
+            clearable
+            style="width: 200px"
+            @keyup.enter="handleFilterChange"
+            @clear="handleFilterChange"
+          />
           <el-select v-model="businessType" placeholder="业务类型" clearable style="width: 160px" @change="handleFilterChange">
             <el-option label="全部" value="" />
             <el-option label="县城外卖" value="county_takeout" />
             <el-option label="乡镇外卖" value="town_takeout" />
           </el-select>
           <el-input
-            v-model="keyword"
-            placeholder="订单号 / 商家 / 用户"
+            v-model="filters.merchantName"
+            placeholder="商家名称"
             clearable
-            style="width: 220px"
+            style="width: 200px"
             @keyup.enter="handleFilterChange"
             @clear="handleFilterChange"
           />
           <el-button type="primary" :loading="loading" @click="handleFilterChange">查询</el-button>
+          <el-button @click="handleReset">重置</el-button>
         </div>
 
         <el-alert
@@ -66,27 +81,31 @@
           </template>
         </el-alert>
 
-        <el-table :data="list" v-loading="loading" border empty-text="暂无已完成订单">
-          <el-table-column label="订单号" min-width="220" show-overflow-tooltip>
+        <el-table :data="list" v-loading="loading" border size="small" class="admin-table--compact" empty-text="暂无已完成订单">
+          <el-table-column label="订单号" width="168">
             <template #default="{ row }">
-              {{ formatOrderNoDisplay(row.order_no) || row.order_no || '--' }}
+              <span class="admin-table__order-no">
+                {{ formatOrderNoDisplay(row.order_no) || row.order_no || '--' }}
+              </span>
             </template>
           </el-table-column>
-          <el-table-column label="业务" width="100">
-            <template #default="{ row }">{{ row.business_label || '--' }}</template>
+          <el-table-column label="业务" width="72" align="center">
+            <template #default="{ row }">
+              {{ row.business_label === '县城外卖' ? '县城' : row.business_label === '乡镇外卖' ? '乡镇' : (row.business_label || '--') }}
+            </template>
           </el-table-column>
-          <el-table-column label="商家" min-width="120" show-overflow-tooltip>
+          <el-table-column label="商家" min-width="100" show-overflow-tooltip>
             <template #default="{ row }">{{ row.merchant?.name || '--' }}</template>
           </el-table-column>
-          <el-table-column label="实付金额" width="100">
-            <template #default="{ row }">¥ {{ row.pay_amount ?? row.total_amount ?? '--' }}</template>
-          </el-table-column>
-          <el-table-column label="完成时间" min-width="170">
-            <template #default="{ row }">{{ formatTime(row.delivered_at || row.settled_at) }}</template>
-          </el-table-column>
-          <el-table-column label="操作" width="90" fixed="right">
+          <el-table-column label="实付/完成" width="102" align="right">
             <template #default="{ row }">
-              <el-button type="primary" link @click="handleViewDetail(row)">分账详情</el-button>
+              <div class="admin-table__main payment-amount">¥ {{ formatMoney(row.pay_amount ?? row.total_amount) }}</div>
+              <div class="admin-table__sub">{{ formatCompactTime(row.delivered_at || row.settled_at) }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="80" align="center">
+            <template #default="{ row }">
+              <el-button type="primary" link size="small" @click="handleViewDetail(row)">详情</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -94,7 +113,7 @@
         <div class="page-shell__pagination">
           <el-pagination
             background
-            layout="total, prev, pager, next"
+            layout="total, prev, pager, next, jumper"
             :current-page="pagination.page"
             :page-size="pagination.pageSize"
             :total="pagination.total"
@@ -128,48 +147,41 @@
           class="page-shell__alert"
         />
 
-        <el-table :data="withdrawList" v-loading="withdrawLoading" border empty-text="暂无提现申请">
-          <el-table-column prop="withdraw_no" label="提现单号" min-width="180" show-overflow-tooltip />
-          <el-table-column :label="withdrawRole === 'merchant' ? '商家' : '账号'" min-width="120" show-overflow-tooltip>
+        <el-table :data="withdrawList" v-loading="withdrawLoading" border size="small" class="admin-table--compact" empty-text="暂无提现申请">
+          <el-table-column label="账号" min-width="120" show-overflow-tooltip>
             <template #default="{ row }">
-              {{ withdrawRole === 'merchant' ? (row.merchant_name || '--') : (row.account_name || '--') }}
-            </template>
-          </el-table-column>
-          <el-table-column v-if="withdrawRole === 'rider'" label="类型" width="90">
-            <template #default="{ row }">{{ row.rider_kind === 'stationmaster' ? '站长' : '骑手' }}</template>
-          </el-table-column>
-          <el-table-column label="金额" width="100">
-            <template #default="{ row }">¥ {{ row.amount }}</template>
-          </el-table-column>
-          <el-table-column label="状态" width="100">
-            <template #default="{ row }">
-              <el-tag :type="withdrawStatusTag(row.status)">{{ withdrawStatusLabel(row.status) }}</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="银行卡" min-width="200">
-            <template #default="{ row }">
-              <div>{{ row.bank_name || '--' }}</div>
-              <div class="payment-bank-card">
-                {{ row.bank_card_plain || row.bank_card_masked || '--' }}
+              <div class="admin-table__main">
+                {{ withdrawRole === 'merchant' ? (row.merchant_name || '--') : (row.account_name || '--') }}
               </div>
+              <div class="admin-table__sub">{{ row.withdraw_no || '--' }}</div>
             </template>
           </el-table-column>
-          <el-table-column label="申请时间" min-width="170">
-            <template #default="{ row }">{{ formatTime(row.applied_at) }}</template>
-          </el-table-column>
-          <el-table-column label="操作" width="180" fixed="right">
+          <el-table-column label="金额/状态" width="96">
             <template #default="{ row }">
-              <template v-if="row.status === 'pending'">
-                <el-button type="primary" link :loading="actionLoadingId === row.id" @click="handleApproveWithdraw(row)">
-                  确认打款
+              <div class="admin-table__main">¥ {{ row.amount }}</div>
+              <el-tag :type="withdrawStatusTag(row.status)" size="small">{{ withdrawStatusLabel(row.status) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="银行卡" min-width="120" show-overflow-tooltip>
+            <template #default="{ row }">
+              <div class="admin-table__main">{{ row.bank_name || '--' }}</div>
+              <div class="admin-table__sub">{{ row.bank_card_plain || row.bank_card_masked || '--' }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="申请时间" width="102">
+            <template #default="{ row }">{{ formatCompactTime(row.applied_at) }}</template>
+          </el-table-column>
+          <el-table-column label="操作" width="92" align="center">
+            <template #default="{ row }">
+              <div v-if="row.status === 'pending'" class="admin-actions--compact">
+                <el-button type="primary" link size="small" :loading="actionLoadingId === row.id" @click="handleApproveWithdraw(row)">
+                  打款
                 </el-button>
-                <el-button type="danger" link :loading="actionLoadingId === row.id" @click="handleRejectWithdraw(row)">
+                <el-button type="danger" link size="small" :loading="actionLoadingId === row.id" @click="handleRejectWithdraw(row)">
                   驳回
                 </el-button>
-              </template>
-              <span v-else class="withdraw-processed">
-                {{ row.reject_reason || row.channel_transfer_no || '已处理' }}
-              </span>
+              </div>
+              <span v-else class="admin-table__sub">{{ row.reject_reason || row.channel_transfer_no || '已处理' }}</span>
             </template>
           </el-table-column>
         </el-table>
@@ -177,7 +189,7 @@
         <div class="page-shell__pagination">
           <el-pagination
             background
-            layout="total, prev, pager, next"
+            layout="total, prev, pager, next, jumper"
             :current-page="withdrawPagination.page"
             :page-size="withdrawPagination.pageSize"
             :total="withdrawPagination.total"
@@ -225,7 +237,8 @@ import {
   rejectRiderWithdrawal,
 } from '../../api/withdraw'
 import { getRequestErrorMessage } from '../../utils/http'
-import { formatOrderNoDisplay } from '../../utils/orderNo.js'
+import { formatOrderNoDisplay, normalizeSearchKeyword } from '../../utils/orderNo.js'
+import { formatCompactTime } from '../../utils/detail-display'
 
 const router = useRouter()
 const route = useRoute()
@@ -235,7 +248,10 @@ const activeTab = ref('settlement')
 const loading = ref(false)
 const loadError = ref('')
 const list = ref([])
-const keyword = ref('')
+const filters = reactive({
+  orderNo: '',
+  merchantName: '',
+})
 const businessType = ref('')
 const pagination = reactive({ page: 1, pageSize: DEFAULT_PAGE_SIZE, total: 0 })
 
@@ -254,12 +270,25 @@ const detailData = ref(null)
 
 const summaryCards = computed(() => {
   const sumPay = list.value.reduce((acc, row) => acc + parseMoney(row.pay_amount ?? row.total_amount), 0).toFixed(2)
+  const pendingCount = pendingWithdrawCount.value
 
   return [
-    { key: 'pay', label: '本页实付合计', value: sumPay },
-    { key: 'count', label: '本页订单数', value: String(list.value.length) },
-    { key: 'withdraw', label: '待处理提现', value: String(pendingWithdrawCount.value ?? '--') },
-    { key: 'tab', label: '当前视图', value: activeTab.value === 'withdraw' ? '提现审批' : '分账明细' },
+    { key: 'pay', label: '本页实付合计', value: sumPay, format: 'money' },
+    { key: 'count', label: '本页订单数', value: String(list.value.length), format: 'count', unit: '笔' },
+    {
+      key: 'total',
+      label: '符合条件的订单',
+      value: pagination.total > 0 ? String(pagination.total) : '0',
+      format: 'count',
+      unit: '笔',
+    },
+    {
+      key: 'withdraw',
+      label: '待处理提现',
+      value: pendingCount === null || pendingCount === undefined || pendingCount === '' ? '--' : String(pendingCount),
+      format: 'count',
+      unit: '笔',
+    },
   ]
 })
 
@@ -268,6 +297,14 @@ const pendingWithdrawCount = ref(null)
 function parseMoney(value) {
   const num = parseFloat(String(value ?? '0').replace(/,/g, ''))
   return Number.isFinite(num) ? num : 0
+}
+
+function formatMoney(value) {
+  if (value === null || value === undefined || value === '') {
+    return '--'
+  }
+  const num = parseMoney(value)
+  return num.toFixed(2)
 }
 
 function formatTime(value) {
@@ -291,13 +328,24 @@ async function loadList() {
   loadError.value = ''
 
   try {
-    const result = await fetchAdminOrders({
+    const params = {
       status: '6',
       business_type: businessType.value || undefined,
-      keyword: keyword.value.trim() || undefined,
       page: pagination.page,
       limit: pagination.pageSize,
-    })
+    }
+
+    const orderKeyword = normalizeSearchKeyword(filters.orderNo)
+    if (orderKeyword) {
+      params.keyword = orderKeyword
+    }
+
+    const merchantName = filters.merchantName.trim()
+    if (merchantName) {
+      params.merchant_name = merchantName
+    }
+
+    const result = await fetchAdminOrders(params)
 
     const items = Array.isArray(result?.list) ? result.list : []
     list.value = items
@@ -337,6 +385,14 @@ async function loadWithdrawList() {
 }
 
 function handleFilterChange() {
+  pagination.page = 1
+  loadList()
+}
+
+function handleReset() {
+  filters.orderNo = ''
+  filters.merchantName = ''
+  businessType.value = ''
   pagination.page = 1
   loadList()
 }
@@ -508,6 +564,22 @@ watch(activeTab, (tab) => {
   font-size: 22px;
   font-weight: 600;
   color: #303133;
+  line-height: 1.2;
+}
+
+.payment-stat-card__value--money {
+  color: #cf1322;
+}
+
+.payment-stat-card__unit {
+  margin-left: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #909399;
+}
+
+.payment-amount {
+  text-align: right;
 }
 
 .payment-toolbar {

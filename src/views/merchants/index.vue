@@ -26,6 +26,43 @@
         </div>
       </div>
 
+      <el-form class="merchant-search" inline @submit.prevent="handleSearch">
+        <el-form-item label="店铺名称">
+          <el-input
+            v-model="filters.storeName"
+            placeholder="请输入店铺名称"
+            clearable
+            style="width: 180px"
+            @keyup.enter="handleSearch"
+            @clear="handleSearch"
+          />
+        </el-form-item>
+        <el-form-item label="手机号">
+          <el-input
+            v-model="filters.phone"
+            placeholder="请输入手机号"
+            clearable
+            style="width: 180px"
+            @keyup.enter="handleSearch"
+            @clear="handleSearch"
+          />
+        </el-form-item>
+        <el-form-item label="乡镇名">
+          <el-input
+            v-model="filters.townName"
+            placeholder="请输入乡镇名"
+            clearable
+            style="width: 180px"
+            @keyup.enter="handleSearch"
+            @clear="handleSearch"
+          />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :loading="loading" @click="handleSearch">搜索</el-button>
+          <el-button @click="handleReset">重置</el-button>
+        </el-form-item>
+      </el-form>
+
       <el-alert
         v-if="loadError"
         :title="loadError"
@@ -39,48 +76,56 @@
         </template>
       </el-alert>
 
-      <el-table :data="list" v-loading="loading" border empty-text="暂无商家数据">
-        <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column prop="store_name" label="店铺名称" min-width="160" show-overflow-tooltip />
-        <el-table-column prop="merchant_nickname" label="商家昵称" min-width="120" show-overflow-tooltip />
-        <el-table-column prop="phone" label="手机号" min-width="130" />
-        <el-table-column label="业务线" width="100">
+      <el-table :data="list" v-loading="loading" border size="small" class="admin-table--compact" empty-text="暂无商家数据">
+        <el-table-column label="店铺" min-width="140" show-overflow-tooltip>
           <template #default="{ row }">
-            {{ getBusinessScopeLabel(row.business_scope) }}
+            <div class="admin-table__stack">
+              <div class="admin-table__main">{{ row.store_name || '--' }}</div>
+              <div class="admin-table__sub">{{ row.merchant_nickname || '--' }}</div>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column prop="town_name" label="所属乡镇" min-width="120" show-overflow-tooltip />
-        <el-table-column prop="category" label="分类" min-width="100" show-overflow-tooltip />
-        <el-table-column label="审核状态" width="100">
+        <el-table-column label="手机号" min-width="108" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.phone || '--' }}</template>
+        </el-table-column>
+        <el-table-column label="业务/分类" min-width="108" show-overflow-tooltip>
           <template #default="{ row }">
-            <el-tag :type="getAuditTagType(row.audit_status)">
-              {{ row.audit_status_text || getAuditLabel(row.audit_status) }}
-            </el-tag>
+            <div class="admin-table__stack">
+              <div class="admin-table__main">{{ getBusinessScopeLabel(row.business_scope) }}</div>
+              <div class="admin-table__sub">{{ row.category || '--' }}</div>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column label="营业状态" width="100">
+        <el-table-column label="乡镇" min-width="88" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.town_name || '--' }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="120">
           <template #default="{ row }">
-            <el-tag :type="Number(row.status) === 1 ? 'success' : 'info'">
-              {{ Number(row.status) === 1 ? '营业中' : '未营业' }}
-            </el-tag>
+            <div class="admin-table__inline">
+              <el-tag :type="getAuditTagType(row.audit_status)" size="small">
+                {{ row.audit_status_text || getAuditLabel(row.audit_status) }}
+              </el-tag>
+              <span class="admin-table__sub">{{ Number(row.status) === 1 ? '营业中' : '未营业' }}</span>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column label="提交时间" min-width="170">
-          <template #default="{ row }">
-            {{ formatTime(row.created_at) }}
-          </template>
+        <el-table-column label="提交时间" width="108">
+          <template #default="{ row }">{{ formatCompactTime(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="160" fixed="right">
+        <el-table-column label="操作" width="92" align="center">
           <template #default="{ row }">
-            <el-button type="primary" link @click="handleViewDetail(row)">详情</el-button>
-            <el-button
-              v-if="Number(row.audit_status) === 0"
-              type="success"
-              link
-              @click="handleAudit(row, 'approve')"
-            >
-              通过
-            </el-button>
+            <div class="admin-actions--compact">
+              <el-button type="primary" link size="small" @click="handleViewDetail(row)">详情</el-button>
+              <el-button
+                v-if="Number(row.audit_status) === 0"
+                type="success"
+                link
+                size="small"
+                @click="handleAudit(row, 'approve')"
+              >
+                通过
+              </el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -88,7 +133,7 @@
       <div class="page-shell__pagination">
         <el-pagination
           background
-          layout="total, prev, pager, next"
+          layout="total, prev, pager, next, jumper"
           :current-page="pagination.page"
           :page-size="pagination.pageSize"
           :total="pagination.total"
@@ -107,19 +152,21 @@
           :closable="false"
         />
         <el-descriptions v-else-if="detailData" :column="1" border>
-          <el-descriptions-item label="店铺名称">{{ detailData.store_name || '--' }}</el-descriptions-item>
-          <el-descriptions-item label="商家昵称">{{ detailData.merchant_nickname || '--' }}</el-descriptions-item>
-          <el-descriptions-item label="手机号">{{ detailData.phone || '--' }}</el-descriptions-item>
-          <el-descriptions-item label="业务线">{{ getBusinessScopeLabel(detailData.business_scope) }}</el-descriptions-item>
-          <el-descriptions-item label="所属乡镇">{{ detailData.town_name || '--' }}</el-descriptions-item>
-          <el-descriptions-item label="地址">{{ detailData.address || '--' }}</el-descriptions-item>
-          <el-descriptions-item label="分类">{{ detailData.category || '--' }}</el-descriptions-item>
-          <el-descriptions-item label="简介">{{ detailData.description || '--' }}</el-descriptions-item>
-          <el-descriptions-item label="审核状态">{{ detailData.audit_status_text || getAuditLabel(detailData.audit_status) }}</el-descriptions-item>
-          <el-descriptions-item label="审核人">{{ detailData.audited_by_name || '--' }}</el-descriptions-item>
-          <el-descriptions-item label="审核时间">{{ formatTime(detailData.audited_at) }}</el-descriptions-item>
-          <el-descriptions-item v-if="detailData.reject_reason" label="驳回原因">{{ detailData.reject_reason }}</el-descriptions-item>
-          <el-descriptions-item label="提交时间">{{ formatTime(detailData.created_at) }}</el-descriptions-item>
+          <el-descriptions-item
+            v-for="item in detailEntries"
+            :key="item.key"
+            :label="item.label"
+          >
+            <el-image
+              v-if="item.isImage"
+              :src="item.imageUrl"
+              :preview-src-list="[item.imageUrl]"
+              fit="cover"
+              class="review-detail__image"
+              preview-teleported
+            />
+            <span v-else class="detail-display__text">{{ item.value }}</span>
+          </el-descriptions-item>
         </el-descriptions>
       </div>
       <template #footer>
@@ -140,7 +187,7 @@
 <script setup>
 // 这个文件是“总后台商家管理页”逻辑。
 // 通过 /admin/merchant/* 拉取列表与详情，待审商家支持本页直接审核。
-import { onMounted, reactive, ref, watch } from 'vue'
+import { reactive, ref, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -150,9 +197,14 @@ import {
   rejectMerchant,
 } from '../../api/merchant'
 import { getRequestErrorMessage } from '../../utils/http'
+import { getBackendOrigin } from '../../utils/backend-origin'
+import { buildDetailEntries, formatCompactTime, getAuditStatusLabel, getBusinessScopeLabel, MERCHANT_DETAIL_FIELD_ORDER } from '../../utils/detail-display'
+import { normalizeSearchKeyword } from '../../utils/orderNo.js'
 
 const route = useRoute()
 const router = useRouter()
+
+const BACKEND_ORIGIN = getBackendOrigin()
 
 const DEFAULT_PAGE_SIZE = 10
 const loading = ref(false)
@@ -160,6 +212,11 @@ const loadError = ref('')
 const list = ref([])
 const summary = ref(null)
 const statusFilter = ref('approved')
+const filters = reactive({
+  storeName: '',
+  phone: '',
+  townName: '',
+})
 const pagination = reactive({ page: 1, pageSize: DEFAULT_PAGE_SIZE, total: 0 })
 
 const detailVisible = ref(false)
@@ -169,22 +226,18 @@ const detailData = ref(null)
 const detailTitle = ref('商家详情')
 const actionLoading = ref(false)
 
+const detailEntries = computed(() => buildDetailEntries(detailData.value, {
+  fieldOrder: MERCHANT_DETAIL_FIELD_ORDER,
+  backendOrigin: BACKEND_ORIGIN,
+}))
+
 function normalizeStatus(value) {
   const allowed = ['all', 'pending', 'approved', 'rejected']
   return allowed.includes(value) ? value : 'approved'
 }
 
-function getBusinessScopeLabel(scope) {
-  if (scope === 'county_food') return '县城'
-  if (scope === 'town_food') return '乡镇'
-  return scope || '--'
-}
-
 function getAuditLabel(status) {
-  if (Number(status) === 0) return '待审核'
-  if (Number(status) === 1) return '已通过'
-  if (Number(status) === 2) return '已驳回'
-  return '--'
+  return getAuditStatusLabel(status)
 }
 
 function getAuditTagType(status) {
@@ -193,20 +246,44 @@ function getAuditTagType(status) {
   return 'warning'
 }
 
-function formatTime(value) {
-  if (!value) return '--'
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false })
+function buildSearchParams() {
+  const params = {
+    page: pagination.page,
+    page_size: pagination.pageSize,
+  }
+
+  // 旧后端不支持 status=all 会 400；省略时新后端默认 all，旧后端默认待审（部署新后端后行为自动正确）
+  if (statusFilter.value !== 'all') {
+    params.status = statusFilter.value
+  }
+
+  const storeName = filters.storeName.trim()
+  const phone = normalizeSearchKeyword(filters.phone)
+  const townName = filters.townName.trim()
+
+  if (storeName) params.store_name = storeName
+  if (phone) params.phone = phone
+  if (townName) params.town_name = townName
+
+  return params
 }
 
 function syncRouteQuery() {
-  router.replace({
-    query: {
-      status: statusFilter.value,
-      page: String(pagination.page),
-      page_size: String(pagination.pageSize),
-    },
-  })
+  const query = {
+    status: statusFilter.value,
+    page: String(pagination.page),
+    page_size: String(pagination.pageSize),
+  }
+
+  const storeName = filters.storeName.trim()
+  const phone = normalizeSearchKeyword(filters.phone)
+  const townName = filters.townName.trim()
+
+  if (storeName) query.store_name = storeName
+  if (phone) query.phone = phone
+  if (townName) query.town_name = townName
+
+  router.replace({ query })
 }
 
 async function loadList() {
@@ -214,18 +291,14 @@ async function loadList() {
   loadError.value = ''
 
   try {
-    const result = await fetchAdminMerchants({
-      status: statusFilter.value,
-      page: pagination.page,
-      page_size: pagination.pageSize,
-    })
-
+    const result = await fetchAdminMerchants(buildSearchParams())
     list.value = Array.isArray(result?.list) ? result.list : []
-    summary.value = result?.summary || null
     pagination.total = result?.total ?? result?.pagination?.total ?? 0
+    summary.value = result?.summary || null
   } catch (error) {
     loadError.value = getRequestErrorMessage(error, '商家列表加载失败')
     list.value = []
+    summary.value = null
     pagination.total = 0
   } finally {
     loading.value = false
@@ -235,13 +308,24 @@ async function loadList() {
 function handleStatusChange() {
   pagination.page = 1
   syncRouteQuery()
-  loadList()
+}
+
+function handleSearch() {
+  pagination.page = 1
+  syncRouteQuery()
+}
+
+function handleReset() {
+  filters.storeName = ''
+  filters.phone = ''
+  filters.townName = ''
+  pagination.page = 1
+  syncRouteQuery()
 }
 
 function handlePageChange(page) {
   pagination.page = page
   syncRouteQuery()
-  loadList()
 }
 
 async function handleViewDetail(row) {
@@ -311,6 +395,9 @@ async function handleAudit(row, action) {
 
 function initFromRoute() {
   statusFilter.value = normalizeStatus(route.query.status)
+  filters.storeName = String(route.query.store_name || '').trim()
+  filters.phone = String(route.query.phone || '').trim()
+  filters.townName = String(route.query.town_name || route.query.town || '').trim()
   pagination.page = Math.max(parseInt(route.query.page, 10) || 1, 1)
   pagination.pageSize = Math.min(Math.max(parseInt(route.query.page_size, 10) || DEFAULT_PAGE_SIZE, 1), 50)
 }
@@ -321,12 +408,8 @@ watch(
     initFromRoute()
     loadList()
   },
+  { immediate: true },
 )
-
-onMounted(() => {
-  initFromRoute()
-  loadList()
-})
 </script>
 
 <style scoped>
@@ -344,5 +427,9 @@ onMounted(() => {
   gap: 16px;
   color: #606266;
   font-size: 13px;
+}
+
+.merchant-search {
+  margin-bottom: 16px;
 }
 </style>

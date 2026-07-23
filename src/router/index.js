@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import MainLayout from '../layout/index.vue'
+import Workbench from '../views/workbench/index.vue'
 import pinia from '../store'
 import { useAuthStore } from '../store/modules/auth'
 
@@ -15,7 +16,7 @@ const routes = [
     component: MainLayout,
     redirect: '/workbench',
     children: [
-      { path: 'workbench', name: 'Workbench', component: () => import('../views/workbench/index.vue'), meta: { title: '工作台' } },
+      { path: 'workbench', name: 'Workbench', component: Workbench, meta: { title: '工作台' } },
       { path: 'platform-users', name: 'PlatformUsers', component: () => import('../views/platform-users/index.vue'), meta: { title: '平台用户' } },
       { path: 'roles', name: 'Roles', component: () => import('../views/roles/index.vue'), meta: { title: '权限角色' } },
       { path: 'merchants', name: 'Merchants', component: () => import('../views/merchants/index.vue'), meta: { title: '商家管理' } },
@@ -49,7 +50,11 @@ const router = createRouter({
   history: createWebHistory(),
   routes,
   scrollBehavior() {
-    return { top: 0 }
+    const main = document.querySelector('.app-layout__main')
+    if (main) {
+      main.scrollTo({ top: 0, left: 0 })
+    }
+    return false
   },
 })
 

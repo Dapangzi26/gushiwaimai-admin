@@ -6,12 +6,8 @@ import { ElMessage, ElNotification } from 'element-plus'
 import SidebarMenu from './components/SidebarMenu.vue'
 import AppHeader from './components/AppHeader.vue'
 import { connectAdminSocket, disconnectAdminSocket } from '../utils/socket'
-import {
-  createAdminReminderCenter,
-  getAudioStatus,
-  subscribeAudioStatus,
-  unlockAudioPlayback,
-} from '../utils/admin-reminder-center'
+import { createAdminReminderCenter, getAudioStatus, subscribeAudioStatus, unlockAudioPlayback } from '../utils/admin-reminder-center'
+import { normalizeSearchKeyword } from '../utils/orderNo.js'
 
 const router = useRouter()
 let reminderCenter = null
@@ -54,9 +50,9 @@ onMounted(() => {
             query: {
               exception_type: 'timeout_unaccepted',
               timeout_minutes: String(alert.waitMinutes || 5),
-              keyword: alert.orderNo || '',
+              keyword: normalizeSearchKeyword(alert.orderNo) || '',
               page: '1',
-              page_size: '10',
+              limit: '10',
             },
           })
         },
@@ -87,19 +83,21 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <el-container class='app-layout'>
-    <el-aside class='app-layout__aside' width='240px'>
+  <div class="app-layout">
+    <aside class="app-layout__aside">
       <SidebarMenu />
-    </el-aside>
-    <el-container>
-      <el-header class='app-layout__header'>
+    </aside>
+
+    <div class="app-layout__body">
+      <header class="app-layout__header">
         <AppHeader
           :audio-unlocked="audioUnlocked"
           :unlocking-audio="unlockingAudio"
           @unlock-audio="handleUnlockAudio"
         />
-      </el-header>
-      <el-main class='app-layout__main'>
+      </header>
+
+      <main class="app-layout__main">
         <el-alert
           v-if="!audioUnlocked"
           class="app-layout__voice-alert"
@@ -116,9 +114,9 @@ onUnmounted(() => {
           </template>
         </el-alert>
         <router-view />
-      </el-main>
-    </el-container>
-  </el-container>
+      </main>
+    </div>
+  </div>
 </template>
 
 <style scoped>

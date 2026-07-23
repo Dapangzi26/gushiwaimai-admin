@@ -6,18 +6,6 @@
         <h1 class="page-shell__title">骑手管理</h1>
         <p class="page-shell__subtitle">{{ pageSubtitle }}</p>
       </div>
-      <div class="page-shell__actions">
-        <el-input
-          v-model="keyword"
-          :placeholder="activeRole === 'rider' ? '搜索昵称、手机号、乡镇名' : '搜索昵称、手机号、商家名、商家ID'"
-          clearable
-          style="width: 280px"
-          @keyup.enter="handleSearch"
-          @clear="handleSearch"
-        />
-        <el-button type="primary" :loading="loading" @click="handleSearch">搜索</el-button>
-        <el-button @click="handleReset">重置</el-button>
-      </div>
     </div>
 
     <el-card class="page-shell__card">
@@ -25,6 +13,63 @@
         <el-tab-pane label="平台骑手" name="rider" />
         <el-tab-pane label="商家自配送员" name="merchant_delivery" />
       </el-tabs>
+
+      <el-form class="rider-toolbar" inline @submit.prevent="handleSearch">
+        <el-form-item label="昵称">
+          <el-input
+            v-model="filters.nickname"
+            placeholder="请输入昵称"
+            clearable
+            style="width: 160px"
+            @keyup.enter="handleSearch"
+            @clear="handleSearch"
+          />
+        </el-form-item>
+        <el-form-item label="手机号">
+          <el-input
+            v-model="filters.phone"
+            placeholder="请输入手机号"
+            clearable
+            style="width: 160px"
+            @keyup.enter="handleSearch"
+            @clear="handleSearch"
+          />
+        </el-form-item>
+        <el-form-item v-if="activeRole === 'rider'" label="乡镇名">
+          <el-input
+            v-model="filters.townName"
+            placeholder="请输入乡镇名"
+            clearable
+            style="width: 160px"
+            @keyup.enter="handleSearch"
+            @clear="handleSearch"
+          />
+        </el-form-item>
+        <el-form-item v-else label="店铺名">
+          <el-input
+            v-model="filters.merchantName"
+            placeholder="请输入店铺名"
+            clearable
+            style="width: 160px"
+            @keyup.enter="handleSearch"
+            @clear="handleSearch"
+          />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :loading="loading" @click="handleSearch">搜索</el-button>
+          <el-button @click="handleReset">重置</el-button>
+        </el-form-item>
+      </el-form>
+
+      <el-alert
+        v-if="onlineStatus === 'offline'"
+        type="info"
+        show-icon
+        :closable="false"
+        class="page-shell__alert"
+        title="离线骑手筛选"
+        description="已按 online_status=offline 过滤（已通过审核且当前不在线的骑手）。"
+      />
 
       <el-alert
         v-if="loadError"
@@ -39,74 +84,84 @@
         </template>
       </el-alert>
 
-      <el-table :data="list" v-loading="loading" border empty-text="暂无骑手数据">
-        <el-table-column prop="id" label="ID" width="90" />
-        <el-table-column prop="nickname" label="昵称" min-width="140" show-overflow-tooltip />
-        <el-table-column prop="phone" label="手机号" min-width="140" />
-        <el-table-column prop="identity_type" label="身份类型" min-width="120">
+      <el-table :data="list" v-loading="loading" border size="small" class="admin-table--compact" empty-text="暂无骑手数据">
+        <el-table-column label="骑手" min-width="140" show-overflow-tooltip>
           <template #default="{ row }">
-            <el-tag :type="row.role === 'merchant_delivery' ? 'warning' : 'primary'">
-              {{ row.identity_type || '--' }}
-            </el-tag>
+            <div class="admin-table__stack">
+              <div class="admin-table__main">{{ row.nickname || '--' }}</div>
+              <div class="admin-table__sub">{{ row.phone || '--' }}</div>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column prop="delivery_scope" label="配送范围" min-width="120">
+        <el-table-column label="身份/范围" min-width="120">
           <template #default="{ row }">
-            {{ getDeliveryScopeLabel(row.delivery_scope) }}
+            <div class="admin-table__inline">
+              <el-tag :type="row.role === 'merchant_delivery' ? 'warning' : 'primary'" size="small">
+                {{ getIdentityTypeLabel(row.identity_type) }}
+              </el-tag>
+              <span class="admin-table__sub">{{ getDeliveryScopeLabel(row.delivery_scope) }}</span>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column prop="town_name" label="所属乡镇" min-width="140" show-overflow-tooltip>
-          <template #default="{ row }">
-            {{ row.town_name || row.rider_town || '--' }}
-          </template>
+        <el-table-column label="乡镇" min-width="88" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.town_name || row.rider_town || '--' }}</template>
         </el-table-column>
         <el-table-column
           v-if="activeRole === 'merchant_delivery'"
-          prop="merchant_name"
           label="所属店铺"
-          min-width="180"
+          min-width="120"
           show-overflow-tooltip
-        />
-        <el-table-column
-          v-if="activeRole === 'merchant_delivery'"
-          prop="merchant_binding_code"
-          label="商家ID"
-          width="120"
-        />
-        <el-table-column prop="audit_status_text" label="审核状态" width="100">
+        >
           <template #default="{ row }">
-            <el-tag :type="getAuditStatusTagType(row.rider_audit_status)">
-              {{ row.audit_status_text || getAuditStatusLabel(row.rider_audit_status) }}
-            </el-tag>
+            <div class="admin-table__stack">
+              <div class="admin-table__main">{{ row.merchant_name || '--' }}</div>
+              <div class="admin-table__sub">ID {{ row.merchant_binding_code || '--' }}</div>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column prop="status" label="账号状态" width="100">
+        <el-table-column label="状态" width="120">
           <template #default="{ row }">
-            <el-tag :type="Number(row.status) === 1 ? 'success' : 'info'">
-              {{ Number(row.status) === 1 ? '正常' : '禁用' }}
-            </el-tag>
+            <div class="admin-table__inline">
+              <el-tag :type="getAuditStatusTagType(row.rider_audit_status)" size="small">
+                {{ row.audit_status_text || getAuditStatusLabel(row.rider_audit_status) }}
+              </el-tag>
+              <span class="admin-table__sub">{{ Number(row.status) === 1 ? '正常' : '禁用' }}</span>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column prop="created_at" label="创建时间" min-width="180">
-          <template #default="{ row }">
-            {{ formatTime(row.created_at) }}
-          </template>
+        <el-table-column label="创建时间" width="108">
+          <template #default="{ row }">{{ formatCompactTime(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="88" align="center">
           <template #default="{ row }">
-            <el-button type="primary" link @click="handleViewDetail(row)">详情</el-button>
-            <template v-if="Number(row.rider_audit_status) === 0">
-              <el-button type="success" link @click="handleAudit(row, 'approve')">通过</el-button>
-              <el-button type="danger" link @click="handleAudit(row, 'reject')">拒绝</el-button>
-            </template>
-            <el-button
-              v-if="activeRole === 'merchant_delivery'"
-              type="danger"
-              link
-              @click="handleDelete(row)"
-            >
-              删除
-            </el-button>
+            <div class="admin-actions--compact">
+              <el-button type="primary" link size="small" @click="handleViewDetail(row)">详情</el-button>
+              <el-dropdown trigger="click" @command="(command) => handleRowCommand(command, row)">
+                <el-button link size="small">更多</el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item
+                      v-if="Number(row.rider_audit_status) === 0"
+                      command="approve"
+                    >
+                      通过
+                    </el-dropdown-item>
+                    <el-dropdown-item
+                      v-if="Number(row.rider_audit_status) === 0"
+                      command="reject"
+                    >
+                      拒绝
+                    </el-dropdown-item>
+                    <el-dropdown-item
+                      v-if="activeRole === 'merchant_delivery'"
+                      command="delete"
+                    >
+                      删除
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -114,7 +169,7 @@
       <div class="page-shell__pagination">
         <el-pagination
           background
-          layout="total, prev, pager, next"
+          layout="total, prev, pager, next, jumper"
           :current-page="pagination.page"
           :page-size="pagination.pageSize"
           :total="pagination.total"
@@ -127,17 +182,21 @@
       <div v-loading="detailLoading">
         <el-alert v-if="detailError" :title="detailError" type="error" show-icon :closable="false" />
         <el-descriptions v-else-if="detailData" :column="1" border>
-          <el-descriptions-item label="ID">{{ detailData.id }}</el-descriptions-item>
-          <el-descriptions-item label="昵称">{{ detailData.nickname || '--' }}</el-descriptions-item>
-          <el-descriptions-item label="手机号">{{ detailData.phone || '--' }}</el-descriptions-item>
-          <el-descriptions-item label="身份类型">{{ detailData.identity_type || '--' }}</el-descriptions-item>
-          <el-descriptions-item label="配送范围">{{ getDeliveryScopeLabel(detailData.delivery_scope) }}</el-descriptions-item>
-          <el-descriptions-item label="所属乡镇">{{ detailData.town_name || detailData.rider_town || '--' }}</el-descriptions-item>
-          <el-descriptions-item v-if="detailData.merchant_name" label="所属店铺">{{ detailData.merchant_name }}</el-descriptions-item>
-          <el-descriptions-item label="审核状态">{{ detailData.audit_status_text || getAuditStatusLabel(detailData.rider_audit_status) }}</el-descriptions-item>
-          <el-descriptions-item label="审核人">{{ detailData.audited_by_name || '--' }}</el-descriptions-item>
-          <el-descriptions-item v-if="detailData.reject_reason" label="驳回原因">{{ detailData.reject_reason }}</el-descriptions-item>
-          <el-descriptions-item label="创建时间">{{ formatTime(detailData.created_at) }}</el-descriptions-item>
+          <el-descriptions-item
+            v-for="item in detailEntries"
+            :key="item.key"
+            :label="item.label"
+          >
+            <el-image
+              v-if="item.isImage"
+              :src="item.imageUrl"
+              :preview-src-list="[item.imageUrl]"
+              fit="cover"
+              class="review-detail__image"
+              preview-teleported
+            />
+            <span v-else class="detail-display__text">{{ item.value }}</span>
+          </el-descriptions-item>
         </el-descriptions>
       </div>
       <template #footer>
@@ -159,14 +218,32 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { deleteDeliveryAgent, approveRider, fetchAdminRiders, fetchRiderDetail, rejectRider } from '../../api/riders'
 import { getRequestErrorMessage } from '../../utils/http'
+import { normalizeSearchKeyword } from '../../utils/orderNo.js'
+import { getBackendOrigin } from '../../utils/backend-origin'
+import {
+  buildDetailEntries,
+  formatCompactTime,
+  getDeliveryScopeLabel,
+  getAuditStatusLabel,
+  getIdentityTypeLabel,
+  RIDER_DETAIL_FIELD_ORDER,
+} from '../../utils/detail-display'
 
 const route = useRoute()
 const router = useRouter()
 
+const BACKEND_ORIGIN = getBackendOrigin()
+
 const DEFAULT_PAGE_SIZE = 10
 const loading = ref(false)
 const loadError = ref('')
-const keyword = ref('')
+const filters = reactive({
+  nickname: '',
+  phone: '',
+  townName: '',
+  merchantName: '',
+})
+const onlineStatus = ref('')
 const activeRole = ref('rider')
 const list = ref([])
 const pagination = reactive({
@@ -181,6 +258,11 @@ const detailError = ref('')
 const detailData = ref(null)
 const detailTitle = ref('骑手详情')
 const actionLoading = ref(false)
+
+const detailEntries = computed(() => buildDetailEntries(detailData.value, {
+  fieldOrder: RIDER_DETAIL_FIELD_ORDER,
+  backendOrigin: BACKEND_ORIGIN,
+}))
 
 // 页面副标题跟着当前角色切换，告诉你这块到底在看哪一类配送账号。
 const pageSubtitle = computed(() =>
@@ -209,8 +291,42 @@ function resolveTotal(payload, fallbackTotal = 0) {
 
 function syncStateFromRoute(query) {
   activeRole.value = normalizeRole(query.role)
-  keyword.value = getKeywordValue(query.keyword)
+  filters.nickname = getKeywordValue(query.nickname)
+  filters.phone = getKeywordValue(query.phone)
+  filters.townName = getKeywordValue(query.town_name || query.town)
+  filters.merchantName = getKeywordValue(query.merchant_name)
+
+  const legacyKeyword = getKeywordValue(query.keyword)
+  if (legacyKeyword && !filters.nickname && !filters.phone && !filters.townName && !filters.merchantName) {
+    filters.townName = legacyKeyword
+  }
+
+  onlineStatus.value = getKeywordValue(query.online_status)
   pagination.page = normalizePage(query.page)
+}
+
+function buildSearchParams() {
+  const params = {
+    role: activeRole.value,
+    page: pagination.page,
+    limit: pagination.pageSize,
+    online_status: onlineStatus.value || undefined,
+  }
+
+  const nickname = filters.nickname.trim()
+  const phone = normalizeSearchKeyword(filters.phone)
+  const townName = filters.townName.trim()
+  const merchantName = filters.merchantName.trim()
+
+  if (nickname) params.nickname = nickname
+  if (phone) params.phone = phone
+  if (activeRole.value === 'rider') {
+    if (townName) params.town_name = townName
+  } else if (merchantName) {
+    params.merchant_name = merchantName
+  }
+
+  return params
 }
 
 function buildRouteQuery() {
@@ -219,8 +335,21 @@ function buildRouteQuery() {
     page: String(pagination.page),
   }
 
-  if (getKeywordValue(keyword.value)) {
-    nextQuery.keyword = getKeywordValue(keyword.value)
+  const nickname = filters.nickname.trim()
+  const phone = normalizeSearchKeyword(filters.phone)
+  const townName = filters.townName.trim()
+  const merchantName = filters.merchantName.trim()
+
+  if (nickname) nextQuery.nickname = nickname
+  if (phone) nextQuery.phone = phone
+  if (activeRole.value === 'rider') {
+    if (townName) nextQuery.town_name = townName
+  } else if (merchantName) {
+    nextQuery.merchant_name = merchantName
+  }
+
+  if (onlineStatus.value) {
+    nextQuery.online_status = onlineStatus.value
   }
 
   return nextQuery
@@ -228,12 +357,25 @@ function buildRouteQuery() {
 
 function isSameQuery(nextQuery) {
   const currentRole = normalizeRole(route.query.role)
-  const currentKeyword = getKeywordValue(route.query.keyword)
+  const currentNickname = getKeywordValue(route.query.nickname)
+  const currentPhone = getKeywordValue(route.query.phone)
+  const currentTownName = getKeywordValue(route.query.town_name || route.query.town || route.query.keyword)
+  const currentMerchantName = getKeywordValue(route.query.merchant_name)
+  const currentOnlineStatus = getKeywordValue(route.query.online_status)
   const currentPage = String(normalizePage(route.query.page))
+
+  const nextNickname = getKeywordValue(nextQuery.nickname)
+  const nextPhone = getKeywordValue(nextQuery.phone)
+  const nextTownName = getKeywordValue(nextQuery.town_name)
+  const nextMerchantName = getKeywordValue(nextQuery.merchant_name)
 
   return (
     currentRole === normalizeRole(nextQuery.role) &&
-    currentKeyword === getKeywordValue(nextQuery.keyword) &&
+    currentNickname === nextNickname &&
+    currentPhone === nextPhone &&
+    currentTownName === nextTownName &&
+    currentMerchantName === nextMerchantName &&
+    currentOnlineStatus === getKeywordValue(nextQuery.online_status) &&
     currentPage === String(normalizePage(nextQuery.page))
   )
 }
@@ -256,12 +398,7 @@ async function loadList() {
   loadError.value = ''
 
   try {
-    const payload = await fetchAdminRiders({
-      role: activeRole.value,
-      keyword: getKeywordValue(keyword.value),
-      page: pagination.page,
-      limit: pagination.pageSize,
-    })
+    const payload = await fetchAdminRiders(buildSearchParams())
 
     list.value = Array.isArray(payload?.list) ? payload.list : []
     pagination.total = resolveTotal(payload, list.value.length)
@@ -280,7 +417,10 @@ async function handleSearch() {
 }
 
 async function handleReset() {
-  keyword.value = ''
+  filters.nickname = ''
+  filters.phone = ''
+  filters.townName = ''
+  filters.merchantName = ''
   pagination.page = 1
   await replaceRouteQuery(buildRouteQuery())
 }
@@ -379,17 +519,18 @@ async function handleAudit(row, action) {
   }
 }
 
-function getDeliveryScopeLabel(scope) {
-  if (scope === 'county_delivery') return '县城配送'
-  if (scope === 'town_delivery') return '乡镇配送'
-  return scope || '--'
-}
-
-function getAuditStatusLabel(status) {
-  if (Number(status) === 0) return '待审核'
-  if (Number(status) === 1) return '已通过'
-  if (Number(status) === 2) return '已拒绝'
-  return '--'
+function handleRowCommand(command, row) {
+  if (command === 'approve') {
+    handleAudit(row, 'approve')
+    return
+  }
+  if (command === 'reject') {
+    handleAudit(row, 'reject')
+    return
+  }
+  if (command === 'delete') {
+    handleDelete(row)
+  }
 }
 
 function getAuditStatusTagType(status) {
@@ -421,46 +562,10 @@ watch(
 .page-shell {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-}
-
-.page-shell__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.page-shell__title {
-  margin: 0;
-  font-size: 24px;
-  font-weight: 600;
-}
-
-.page-shell__subtitle {
-  margin: 8px 0 0;
-  color: #909399;
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.page-shell__actions {
-  display: flex;
-  align-items: center;
   gap: 12px;
 }
 
-.page-shell__card {
-  border-radius: 12px;
-}
-
-.page-shell__alert {
+.rider-toolbar {
   margin-bottom: 16px;
-}
-
-.page-shell__pagination {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 16px;
 }
 </style>

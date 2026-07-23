@@ -9,10 +9,16 @@ let socketInstance = null
 let reminderHandler = null
 
 function resolveSocketBaseUrl() {
+  const explicit = String(import.meta.env.VITE_BACKEND_ORIGIN || '').trim()
+  if (explicit) {
+    return explicit.replace(/\/$/, '')
+  }
+
   const apiBase = String(import.meta.env.VITE_API_BASE_URL || '').trim()
-  if (apiBase) {
+  if (apiBase.startsWith('http')) {
     return apiBase.replace(/\/api\/?$/i, '')
   }
+
   return window.location.origin
 }
 

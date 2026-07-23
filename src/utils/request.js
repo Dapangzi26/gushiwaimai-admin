@@ -34,7 +34,9 @@ request.interceptors.response.use(
     }
 
     const message = getRequestErrorMessage(error, '请求失败')
-    ElMessage.error(message)
+    if (!error?.config?.skipErrorToast) {
+      ElMessage.error(message)
+    }
     return Promise.reject(error)
   },
 )

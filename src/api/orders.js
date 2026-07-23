@@ -2,6 +2,19 @@
 import request from '../utils/request'
 import { unwrapPayload } from './helpers'
 
+/**
+ * 订单列表
+ * @param {object} params
+ * @param {number} [params.page]
+ * @param {number} [params.limit]
+ * @param {string} [params.status] - 订单状态码
+ * @param {string} [params.business_type] - county_takeout | town_takeout
+ * @param {string} [params.keyword] - 订单号 / 联系人 / 手机号
+ * @param {string} [params.merchant_name] - 商家名称
+ * @param {string} [params.town_name] - 乡镇名称
+ * @param {string} [params.start_time] - 开始时间
+ * @param {string} [params.end_time] - 结束时间
+ */
 export async function fetchAdminOrders(params = {}) {
   const response = await request.get('/admin/orders', { params })
   return unwrapPayload(response)

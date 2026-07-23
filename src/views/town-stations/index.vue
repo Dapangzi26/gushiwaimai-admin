@@ -5,20 +5,8 @@
       <div>
         <h1 class="page-shell__title">站长乡镇管理</h1>
         <p class="page-shell__subtitle">
-          站长不是独立表，而是骑手账号的字段组合（乡镇配送 + 站长身份）。此处基于骑手列表聚合展示，完整 CRUD 需后端专用接口。
+          站长是骑手账号的字段组合（乡镇配送 + 站长身份）。搜索与分页由 GET /admin/town-stations 服务端处理。
         </p>
-      </div>
-      <div class="page-shell__actions">
-        <el-input
-          v-model="keyword"
-          placeholder="搜索站长昵称、手机号、乡镇名"
-          clearable
-          style="width: 260px"
-          @keyup.enter="handleSearch"
-          @clear="handleSearch"
-        />
-        <el-button type="primary" :loading="loading" @click="handleSearch">搜索</el-button>
-        <el-button @click="handleReset">重置</el-button>
       </div>
     </div>
 
@@ -28,7 +16,9 @@
       :closable="false"
       class="page-shell__alert"
       title="数据来源说明"
-      description="当前复用 /admin/rider 接口，在前端筛选 identity_type=乡镇站长 的账号。乡镇骑手归属、站长发薪等高级能力待后端 /admin/town-station 接口建设。"
+      :description="dataSource === 'api'
+        ? '数据来自 GET /admin/town-stations 专用接口。'
+        : '后端 /admin/town-stations 尚未就绪，当前复用 /admin/rider 在前端筛选乡镇站长。'"
     />
 
     <div class="town-stats">
@@ -39,6 +29,43 @@
     </div>
 
     <el-card class="page-shell__card">
+      <el-form class="town-station-toolbar" inline @submit.prevent="handleSearch">
+        <el-form-item label="站长昵称">
+          <el-input
+            v-model="filters.nickname"
+            placeholder="请输入站长昵称"
+            clearable
+            style="width: 180px"
+            @keyup.enter="handleSearch"
+            @clear="handleSearch"
+          />
+        </el-form-item>
+        <el-form-item label="手机号">
+          <el-input
+            v-model="filters.phone"
+            placeholder="请输入手机号"
+            clearable
+            style="width: 180px"
+            @keyup.enter="handleSearch"
+            @clear="handleSearch"
+          />
+        </el-form-item>
+        <el-form-item label="乡镇名">
+          <el-input
+            v-model="filters.townName"
+            placeholder="请输入乡镇名"
+            clearable
+            style="width: 180px"
+            @keyup.enter="handleSearch"
+            @clear="handleSearch"
+          />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :loading="loading" @click="handleSearch">搜索</el-button>
+          <el-button @click="handleReset">重置</el-button>
+        </el-form-item>
+      </el-form>
+
       <el-alert
         v-if="loadError"
         :title="loadError"
@@ -52,56 +79,74 @@
         </template>
       </el-alert>
 
-      <el-table :data="stationList" v-loading="loading" border empty-text="暂无站长数据">
-        <el-table-column prop="id" label="站长ID" width="90" />
-        <el-table-column prop="nickname" label="站长昵称" min-width="130" show-overflow-tooltip />
-        <el-table-column prop="phone" label="手机号" min-width="140" />
-        <el-table-column prop="town_name" label="负责乡镇" min-width="140" show-overflow-tooltip />
-        <el-table-column label="审核状态" width="100">
+      <el-table :data="stationList" v-loading="loading" border size="small" class="admin-table--compact" empty-text="暂无站长数据">
+        <el-table-column label="站长" min-width="120" show-overflow-tooltip>
           <template #default="{ row }">
-            <el-tag :type="Number(row.rider_audit_status) === 1 ? 'success' : 'warning'">
-              {{ row.audit_status_text || '--' }}
-            </el-tag>
+            <div class="admin-table__stack">
+              <div class="admin-table__main">{{ row.nickname || '--' }}</div>
+              <div class="admin-table__sub">{{ row.phone || '--' }}</div>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column label="账号状态" width="100">
+        <el-table-column label="负责乡镇" min-width="100" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.town_name || row.rider_town || '--' }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="120">
           <template #default="{ row }">
-            <el-tag :type="Number(row.status) === 1 ? 'success' : 'info'">
-              {{ Number(row.status) === 1 ? '正常' : '禁用' }}
-            </el-tag>
+            <div class="admin-table__inline">
+              <el-tag :type="Number(row.rider_audit_status) === 1 ? 'success' : 'warning'" size="small">
+                {{ row.audit_status_text || '--' }}
+              </el-tag>
+              <span class="admin-table__sub">{{ Number(row.status) === 1 ? '正常' : '禁用' }}</span>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column label="下属乡镇骑手" width="120">
-          <template #default="{ row }">
-            {{ getTownRiderCount(row) }}
-          </template>
+        <el-table-column label="下属骑手" width="80" align="center">
+          <template #default="{ row }">{{ getTownRiderCount(row) }}</template>
         </el-table-column>
-        <el-table-column label="创建时间" min-width="170">
-          <template #default="{ row }">
-            {{ formatTime(row.created_at) }}
-          </template>
+        <el-table-column label="创建时间" width="108">
+          <template #default="{ row }">{{ formatCompactTime(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="160" fixed="right">
+        <el-table-column label="操作" width="120" align="center">
           <template #default="{ row }">
-            <el-button type="primary" link @click="handleViewDetail(row)">详情</el-button>
-            <el-button type="primary" link @click="goRiders(row)">看本乡镇骑手</el-button>
+            <div class="admin-actions--compact">
+              <el-button type="primary" link size="small" @click="handleViewDetail(row)">详情</el-button>
+              <el-button type="primary" link size="small" @click="goRiders(row)">骑手</el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
+
+      <div v-if="dataSource === 'api'" class="page-shell__pagination">
+        <el-pagination
+          background
+          layout="total, prev, pager, next, jumper"
+          :current-page="pagination.page"
+          :page-size="pagination.pageSize"
+          :total="pagination.total"
+          @current-change="handlePageChange"
+        />
+      </div>
     </el-card>
 
     <el-drawer v-model="detailVisible" title="站长详情" size="480px" destroy-on-close>
       <div v-loading="detailLoading">
         <el-descriptions v-if="detailData" :column="1" border>
-          <el-descriptions-item label="站长ID">{{ detailData.id }}</el-descriptions-item>
-          <el-descriptions-item label="昵称">{{ detailData.nickname || '--' }}</el-descriptions-item>
-          <el-descriptions-item label="手机号">{{ detailData.phone || '--' }}</el-descriptions-item>
-          <el-descriptions-item label="身份类型">{{ detailData.identity_type || '乡镇站长' }}</el-descriptions-item>
-          <el-descriptions-item label="负责乡镇">{{ detailData.town_name || detailData.rider_town || '--' }}</el-descriptions-item>
-          <el-descriptions-item label="乡镇编码">{{ detailData.town_code || '--' }}</el-descriptions-item>
-          <el-descriptions-item label="审核状态">{{ detailData.audit_status_text || '--' }}</el-descriptions-item>
-          <el-descriptions-item label="审核人">{{ detailData.audited_by_name || '--' }}</el-descriptions-item>
-          <el-descriptions-item label="创建时间">{{ formatTime(detailData.created_at) }}</el-descriptions-item>
+          <el-descriptions-item
+            v-for="item in detailEntries"
+            :key="item.key"
+            :label="item.label"
+          >
+            <el-image
+              v-if="item.isImage"
+              :src="item.imageUrl"
+              :preview-src-list="[item.imageUrl]"
+              fit="cover"
+              class="review-detail__image"
+              preview-teleported
+            />
+            <span v-else class="detail-display__text">{{ item.value }}</span>
+          </el-descriptions-item>
         </el-descriptions>
       </div>
     </el-drawer>
@@ -110,23 +155,43 @@
 
 <script setup>
 // 这个文件是“总后台站长乡镇管理页”逻辑。
-// 拉取 role=rider 的全量骑手后，前端筛选乡镇站长并按乡镇名统计下属骑手数量。
-import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+// 站长乡镇管理：优先 GET /admin/town-stations；404 时从骑手列表前端筛选兜底。
+import { computed, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { fetchTownStations, isTownStationsApiUnavailable } from '../../api/town-stations'
 import { fetchAdminRiders, fetchRiderDetail } from '../../api/riders'
 import { getRequestErrorMessage } from '../../utils/http'
+import { buildDetailEntries, formatCompactTime, RIDER_DETAIL_FIELD_ORDER } from '../../utils/detail-display'
+import { getBackendOrigin } from '../../utils/backend-origin'
+import { matchesLocalSearchKeyword, normalizeSearchKeyword } from '../../utils/orderNo.js'
+import { resolveList, resolveTotal } from '../../utils/list'
 
 const router = useRouter()
+const route = useRoute()
 
+const BACKEND_ORIGIN = getBackendOrigin()
+
+const DEFAULT_PAGE_SIZE = 10
 const loading = ref(false)
 const loadError = ref('')
-const keyword = ref('')
+const filters = reactive({
+  nickname: '',
+  phone: '',
+  townName: '',
+})
 const allRiders = ref([])
 const stationList = ref([])
+const dataSource = ref('fallback')
+const pagination = reactive({ page: 1, pageSize: DEFAULT_PAGE_SIZE, total: 0 })
 
 const detailVisible = ref(false)
 const detailLoading = ref(false)
 const detailData = ref(null)
+
+const detailEntries = computed(() => buildDetailEntries(detailData.value, {
+  fieldOrder: RIDER_DETAIL_FIELD_ORDER,
+  backendOrigin: BACKEND_ORIGIN,
+}))
 
 const statCards = computed(() => {
   const towns = new Set(stationList.value.map((item) => item.town_name || item.rider_town).filter(Boolean))
@@ -168,33 +233,69 @@ function getTownRiderCount(stationRow) {
   }).length
 }
 
-function formatTime(value) {
-  if (!value) return '--'
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false })
-}
-
 function applyFilter() {
-  const key = keyword.value.trim().toLowerCase()
   let stations = allRiders.value.filter(isStationMaster)
 
-  if (key) {
-    stations = stations.filter((item) => {
-      const haystack = [
-        item.nickname,
-        item.phone,
-        item.town_name,
-        item.rider_town,
-        item.town_code,
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
-      return haystack.includes(key)
-    })
+  const nickname = filters.nickname.trim()
+  const phone = filters.phone.trim()
+  const townName = filters.townName.trim()
+
+  if (nickname) {
+    stations = stations.filter((item) => matchesLocalSearchKeyword(nickname, [item.nickname]))
+  }
+
+  if (phone) {
+    stations = stations.filter((item) => matchesLocalSearchKeyword(phone, [item.phone]))
+  }
+
+  if (townName) {
+    stations = stations.filter((item) =>
+      matchesLocalSearchKeyword(townName, [item.town_name, item.rider_town, item.town_code]),
+    )
   }
 
   stationList.value = stations
+  pagination.total = stations.length
+}
+
+function buildSearchParams() {
+  const params = {
+    page: pagination.page,
+    limit: pagination.pageSize,
+  }
+
+  const nickname = filters.nickname.trim()
+  const phone = normalizeSearchKeyword(filters.phone)
+  const townName = filters.townName.trim()
+
+  if (nickname) params.nickname = nickname
+  if (phone) params.phone = phone
+  if (townName) params.town_name = townName
+
+  return params
+}
+
+function syncRouteQuery() {
+  const query = {
+    page: String(pagination.page),
+  }
+
+  const nickname = filters.nickname.trim()
+  const phone = normalizeSearchKeyword(filters.phone)
+  const townName = filters.townName.trim()
+
+  if (nickname) query.nickname = nickname
+  if (phone) query.phone = phone
+  if (townName) query.town_name = townName
+
+  router.replace({ query })
+}
+
+function initFromRoute() {
+  filters.nickname = String(route.query.nickname || '').trim()
+  filters.phone = String(route.query.phone || '').trim()
+  filters.townName = String(route.query.town_name || route.query.town || '').trim()
+  pagination.page = Math.max(parseInt(route.query.page, 10) || 1, 1)
 }
 
 async function fetchAllRiderPages() {
@@ -216,29 +317,68 @@ async function fetchAllRiderPages() {
   return merged
 }
 
-async function loadAllRiders() {
+async function loadAllRidersFallback(forceRefresh = false) {
+  if (forceRefresh || !allRiders.value.length) {
+    allRiders.value = await fetchAllRiderPages()
+  }
+  dataSource.value = 'fallback'
+  applyFilter()
+}
+
+async function loadStations(forceRefreshFallback = false) {
   loading.value = true
   loadError.value = ''
 
   try {
-    allRiders.value = await fetchAllRiderPages()
-    applyFilter()
+    const result = await fetchTownStations(buildSearchParams())
+    const stations = resolveList(result)
+    stationList.value = stations
+    allRiders.value = Array.isArray(result?.riders) ? result.riders : stations
+    pagination.total = resolveTotal(result, stations.length)
+    dataSource.value = 'api'
   } catch (error) {
+    if (isTownStationsApiUnavailable(error)) {
+      try {
+        await loadAllRidersFallback(forceRefreshFallback)
+        return
+      } catch (fallbackError) {
+        loadError.value = getRequestErrorMessage(fallbackError, '站长数据加载失败')
+        allRiders.value = []
+        stationList.value = []
+        pagination.total = 0
+        return
+      }
+    }
+
     loadError.value = getRequestErrorMessage(error, '站长数据加载失败')
     allRiders.value = []
     stationList.value = []
+    pagination.total = 0
   } finally {
     loading.value = false
   }
 }
 
+async function loadAllRiders() {
+  await loadStations(true)
+}
+
 function handleSearch() {
-  applyFilter()
+  pagination.page = 1
+  syncRouteQuery()
 }
 
 function handleReset() {
-  keyword.value = ''
-  applyFilter()
+  filters.nickname = ''
+  filters.phone = ''
+  filters.townName = ''
+  pagination.page = 1
+  syncRouteQuery()
+}
+
+function handlePageChange(page) {
+  pagination.page = page
+  syncRouteQuery()
 }
 
 async function handleViewDetail(row) {
@@ -259,16 +399,29 @@ function goRiders(row) {
   const town = normalizeTownName(row)
   router.push({
     path: '/riders',
-    query: { role: 'rider', keyword: town || undefined, page: '1' },
+    query: {
+      role: 'rider',
+      town_name: town || undefined,
+      page: '1',
+    },
   })
 }
 
-onMounted(() => {
-  loadAllRiders()
-})
+watch(
+  () => route.query,
+  async () => {
+    initFromRoute()
+    await loadStations()
+  },
+  { immediate: true },
+)
 </script>
 
 <style scoped>
+.town-station-toolbar {
+  margin-bottom: 16px;
+}
+
 .town-stats {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

@@ -11,6 +11,8 @@ import {
   toggleNotificationPin,
   updateNotification,
 } from '../../api/notification'
+import { normalizeSearchKeyword } from '../../utils/orderNo.js'
+import { formatCompactTime } from '../../utils/detail-display'
 
 const ROLE_OPTIONS = [
   { label: '全部角色', value: 'all' },
@@ -118,7 +120,7 @@ function getQueryParams() {
     params.target_role = filters.target_role
   }
 
-  const keyword = filters.keyword.trim()
+  const keyword = normalizeSearchKeyword(filters.keyword)
   if (keyword) {
     params.keyword = keyword
   }
@@ -282,6 +284,28 @@ async function handleDelete(row) {
   }
 }
 
+function handleNotificationCommand(command, row) {
+  if (command === 'edit') {
+    openEditDialog(row)
+    return
+  }
+  if (command === 'publish') {
+    handlePublish(row)
+    return
+  }
+  if (command === 'offline') {
+    handleOffline(row)
+    return
+  }
+  if (command === 'pin') {
+    handleTogglePin(row)
+    return
+  }
+  if (command === 'delete') {
+    handleDelete(row)
+  }
+}
+
 function getStatusTagType(status) {
   if (status === 'published') return 'success'
   if (status === 'offline') return 'info'
@@ -294,19 +318,6 @@ function getStatusLabel(status) {
 
 function getRoleLabel(role) {
   return ROLE_OPTIONS.find((item) => item.value === role)?.label || role || '--'
-}
-
-function formatTime(value) {
-  if (!value) {
-    return '--'
-  }
-
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return value
-  }
-
-  return date.toLocaleString('zh-CN', { hour12: false })
 }
 
 onMounted(() => {
@@ -380,85 +391,67 @@ onMounted(() => {
         v-loading="listState.loading"
         :data="tableData"
         border
-        class="notification-table"
+        size="small"
+        class="admin-table--compact notification-table"
       >
-        <el-table-column label="标题" min-width="280">
+        <el-table-column label="标题" min-width="180" show-overflow-tooltip>
           <template #default="{ row }">
-            <div class="notification-title-cell">
-              <div class="notification-title-row">
-                <span class="notification-title-text">{{ row.title }}</span>
-                <el-tag v-if="row.is_pinned" type="danger" effect="plain" size="small">置顶</el-tag>
-              </div>
+            <div class="admin-table__inline">
+              <span class="admin-table__main">{{ row.title }}</span>
+              <el-tag v-if="row.is_pinned" type="danger" effect="plain" size="small">置顶</el-tag>
             </div>
           </template>
         </el-table-column>
 
-        <el-table-column label="目标角色" min-width="120">
+        <el-table-column label="目标/状态" min-width="110">
           <template #default="{ row }">
-            <el-tag effect="plain">{{ getRoleLabel(row.target_role) }}</el-tag>
+            <div class="admin-table__inline">
+              <span class="admin-table__main">{{ getRoleLabel(row.target_role) }}</span>
+              <el-tag :type="getStatusTagType(row.status)" size="small">{{ getStatusLabel(row.status) }}</el-tag>
+            </div>
           </template>
         </el-table-column>
 
-        <el-table-column label="状态" min-width="120">
+        <el-table-column label="发布时间" min-width="120">
           <template #default="{ row }">
-            <el-tag :type="getStatusTagType(row.status)">{{ getStatusLabel(row.status) }}</el-tag>
+            <div class="admin-table__stack">
+              <div class="admin-table__main">{{ formatCompactTime(row.published_at) }}</div>
+              <div class="admin-table__sub">更新 {{ formatCompactTime(row.updated_at) }}</div>
+            </div>
           </template>
         </el-table-column>
 
-        <el-table-column label="是否置顶" min-width="100">
+        <el-table-column label="操作" width="88" align="center">
           <template #default="{ row }">
-            <span>{{ row.is_pinned ? '是' : '否' }}</span>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="发布时间" min-width="170">
-          <template #default="{ row }">
-            <span>{{ formatTime(row.published_at) }}</span>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="更新时间" min-width="170">
-          <template #default="{ row }">
-            <span>{{ formatTime(row.updated_at) }}</span>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="操作" width="380" fixed="right">
-          <template #default="{ row }">
-            <div class="notification-actions">
-              <el-button link type="primary" :disabled="actionLoadingId === row.id" @click="openEditDialog(row)">编辑</el-button>
+            <div class="admin-actions--compact">
               <el-button
                 link
-                type="success"
-                :disabled="row.status === 'published' || actionLoadingId === row.id"
-                @click="handlePublish(row)"
-              >
-                发布
-              </el-button>
-              <el-button
-                link
-                type="warning"
-                :disabled="row.status === 'offline' || actionLoadingId === row.id"
-                @click="handleOffline(row)"
-              >
-                下线
-              </el-button>
-              <el-button
-                link
-                :type="row.is_pinned ? 'info' : 'danger'"
+                type="primary"
+                size="small"
                 :disabled="actionLoadingId === row.id"
-                @click="handleTogglePin(row)"
+                @click="openEditDialog(row)"
               >
-                {{ row.is_pinned ? '取消置顶' : '置顶' }}
+                编辑
               </el-button>
-              <el-button
-                link
-                type="danger"
-                :disabled="actionLoadingId === row.id"
-                @click="handleDelete(row)"
-              >
-                删除
-              </el-button>
+              <el-dropdown trigger="click" @command="(command) => handleNotificationCommand(command, row)">
+                <el-button link size="small" :disabled="actionLoadingId === row.id">更多</el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="publish" :disabled="row.status === 'published' || actionLoadingId === row.id">
+                      发布
+                    </el-dropdown-item>
+                    <el-dropdown-item command="offline" :disabled="row.status === 'offline' || actionLoadingId === row.id">
+                      下线
+                    </el-dropdown-item>
+                    <el-dropdown-item command="pin" :disabled="actionLoadingId === row.id">
+                      {{ row.is_pinned ? '取消置顶' : '置顶' }}
+                    </el-dropdown-item>
+                    <el-dropdown-item command="delete" :disabled="actionLoadingId === row.id" divided>
+                      删除
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
             </div>
           </template>
         </el-table-column>

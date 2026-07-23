@@ -15,6 +15,15 @@ import {
   rejectMerchant,
   rejectRider,
 } from '../../api/review'
+import { getBackendOrigin } from '../../utils/backend-origin'
+import {
+  buildDetailEntry,
+  COMMON_HIDDEN_FIELDS,
+  MERCHANT_DETAIL_FIELD_ORDER,
+  RIDER_DETAIL_FIELD_ORDER,
+  formatCompactTime,
+  getIdentityTypeLabel,
+} from '../../utils/detail-display'
 
 const route = useRoute()
 const router = useRouter()
@@ -27,114 +36,11 @@ const detailTitle = ref('审核详情')
 const detailData = ref(null)
 const detailType = ref('merchant')
 
-const BACKEND_ORIGIN = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/api\/?$/, '')
-
-const DETAIL_LABEL_MAP = {
-  id: 'ID',
-  store_name: '店铺名称',
-  merchant_nickname: '商家昵称',
-  nickname: '昵称',
-  name: '名称',
-  phone: '手机号',
-  mobile: '手机号',
-  town_code: '乡镇编码',
-  town_name: '所属乡镇',
-  address: '地址',
-  description: '简介',
-  category: '分类',
-  business_scope: '业务线',
-  business_license: '营业执照',
-  logo: '店铺 Logo',
-  cover: '店铺封面',
-  avatar: '头像',
-  audit_status: '审核状态',
-  audit_status_text: '审核状态',
-  status: '账号状态',
-  created_at: '提交时间',
-  updated_at: '更新时间',
-  apply_time: '申请时间',
-  audited_by_role: '审核角色',
-  audited_by_user_id: '审核人ID',
-  audited_by_name: '审核人',
-  audited_at: '审核时间',
-  reject_reason: '驳回原因',
-  identity_type: '身份类型',
-  rider_kind: '骑手类型',
-  rider_level: '骑手等级',
-  delivery_scope: '配送范围',
-  id_card_front: '身份证人像面',
-  id_card_back: '身份证国徽面',
-  id_card_hold: '手持身份证',
-  health_certificate: '健康证',
-  driving_license: '驾驶证',
-  vehicle_license: '行驶证',
-  user: '关联账号',
-}
-
-const IMAGE_FIELDS = new Set([
-  'business_license',
-  'logo',
-  'cover',
-  'avatar',
-  'id_card_front',
-  'id_card_back',
-  'id_card_hold',
-  'health_certificate',
-  'driving_license',
-  'vehicle_license',
-])
+const BACKEND_ORIGIN = getBackendOrigin()
 
 const DETAIL_FIELD_ORDER = {
-  merchant: [
-    'id',
-    'store_name',
-    'merchant_nickname',
-    'phone',
-    'business_scope',
-    'town_name',
-    'address',
-    'category',
-    'description',
-    'business_license',
-    'logo',
-    'cover',
-    'audit_status',
-    'audited_by_role',
-    'audited_by_name',
-    'audited_at',
-    'reject_reason',
-    'status',
-    'created_at',
-    'updated_at',
-    'user',
-  ],
-  rider: [
-    'id',
-    'nickname',
-    'phone',
-    'town_name',
-    'identity_type',
-    'address',
-    'rider_kind',
-    'rider_level',
-    'delivery_scope',
-    'avatar',
-    'id_card_front',
-    'id_card_back',
-    'id_card_hold',
-    'health_certificate',
-    'driving_license',
-    'vehicle_license',
-    'audit_status',
-    'audited_by_role',
-    'audited_by_name',
-    'audited_at',
-    'reject_reason',
-    'status',
-    'created_at',
-    'updated_at',
-    'user',
-  ],
+  merchant: MERCHANT_DETAIL_FIELD_ORDER,
+  rider: RIDER_DETAIL_FIELD_ORDER,
 }
 
 const merchantState = reactive({
@@ -155,27 +61,6 @@ const riderState = reactive({
 
 const currentState = computed(() => (activeTab.value === 'merchant' ? merchantState : riderState))
 
-const currentColumns = computed(() =>
-  activeTab.value === 'merchant'
-    ? [
-        { key: 'id', label: 'ID', width: 90 },
-        { key: 'name', label: '名称' },
-        { key: 'phone', label: '手机号' },
-        { key: 'town', label: '所属乡镇' },
-        { key: 'submittedAt', label: '提交时间' },
-        { key: 'statusText', label: '当前审核状态' },
-      ]
-    : [
-        { key: 'id', label: 'ID', width: 90 },
-        { key: 'nickname', label: '昵称' },
-        { key: 'phone', label: '手机号' },
-        { key: 'identityType', label: '身份类型' },
-        { key: 'town', label: '所属乡镇' },
-        { key: 'submittedAt', label: '提交时间' },
-        { key: 'statusText', label: '当前审核状态' },
-      ],
-)
-
 const detailEntries = computed(() => {
   if (!detailData.value || detailData.value.errorMessage) {
     return []
@@ -183,12 +68,12 @@ const detailEntries = computed(() => {
 
   const schema = DETAIL_FIELD_ORDER[detailType.value] || []
   const matchedEntries = schema
-    .filter((key) => key in detailData.value)
-    .map((key) => createDetailEntry(key, detailData.value[key]))
+    .filter((key) => key in detailData.value && !COMMON_HIDDEN_FIELDS.has(key))
+    .map((key) => buildDetailEntry(key, detailData.value[key], BACKEND_ORIGIN))
 
   const remainingEntries = Object.entries(detailData.value)
-    .filter(([key]) => !schema.includes(key))
-    .map(([key, value]) => createDetailEntry(key, value))
+    .filter(([key]) => !schema.includes(key) && !COMMON_HIDDEN_FIELDS.has(key))
+    .map(([key, value]) => buildDetailEntry(key, value, BACKEND_ORIGIN))
 
   return [...matchedEntries, ...remainingEntries]
 })
@@ -221,114 +106,11 @@ function normalizeRecord(record, type) {
     nickname: record?.nickname || record?.name || '--',
     phone: record?.phone || record?.mobile || '--',
     town: record?.town_name || record?.town || record?.station_name || '--',
-    identityType: record?.identity_type || '--',
+    identityType: getIdentityTypeLabel(record?.identity_type),
     submittedAt: record?.submitted_at || record?.created_at || record?.apply_time || '--',
-    statusText: record?.status_text || record?.audit_status_text || record?.status || '待审核',
+    statusText: record?.status_text || record?.audit_status_text || record?.apply_status_text || '待审核',
     type,
   }
-}
-
-function createDetailEntry(key, value) {
-  const normalizedValue = normalizeDetailValue(key, value)
-
-  return {
-    key,
-    label: DETAIL_LABEL_MAP[key] || key,
-    isImage: IMAGE_FIELDS.has(key) && Boolean(buildAssetUrl(value)),
-    imageUrl: buildAssetUrl(value),
-    value: normalizedValue,
-  }
-}
-
-function normalizeDetailValue(key, value) {
-  if (value === null || value === undefined || value === '') {
-    return '--'
-  }
-
-  if (key === 'audit_status') {
-    return getAuditStatusLabel(value)
-  }
-
-  if (key === 'status') {
-    return getAccountStatusLabel(value)
-  }
-
-  if (key === 'business_scope') {
-    return getBusinessScopeLabel(value)
-  }
-
-  if (key === 'rider_kind') {
-    return getRiderKindLabel(value)
-  }
-
-  if (key === 'delivery_scope') {
-    return getDeliveryScopeLabel(value)
-  }
-
-  if (key === 'created_at' || key === 'updated_at' || key === 'apply_time') {
-    return formatTime(value)
-  }
-
-  if (typeof value === 'object') {
-    return JSON.stringify(value, null, 2)
-  }
-
-  return value
-}
-
-function buildAssetUrl(value) {
-  if (!value || typeof value !== 'string') {
-    return ''
-  }
-
-  if (/^https?:\/\//.test(value)) {
-    return value
-  }
-
-  if (!BACKEND_ORIGIN) {
-    return value
-  }
-
-  return `${BACKEND_ORIGIN}${value.startsWith('/') ? value : `/${value}`}`
-}
-
-function formatTime(value) {
-  if (!value) {
-    return '--'
-  }
-
-  return new Date(value).toLocaleString('zh-CN', { hour12: false })
-}
-
-function getAuditStatusLabel(status) {
-  if (Number(status) === 0) return '待审核'
-  if (Number(status) === 1) return '已通过'
-  if (Number(status) === 2) return '已拒绝'
-  return String(status)
-}
-
-function getAccountStatusLabel(status) {
-  if (Number(status) === 1) return '正常'
-  if (Number(status) === 0) return '禁用'
-  return String(status)
-}
-
-function getBusinessScopeLabel(scope) {
-  if (scope === 'county_food') return '县城'
-  if (scope === 'town_food') return '乡镇'
-  return scope || '--'
-}
-
-function getDeliveryScopeLabel(scope) {
-  if (scope === 'county_delivery') return '县城配送'
-  if (scope === 'town_delivery') return '乡镇配送'
-  return scope || '--'
-}
-
-function getRiderKindLabel(riderKind) {
-  if (riderKind === 'stationmaster') return '乡镇站长'
-  if (riderKind === 'rider') return '普通骑手'
-  return riderKind || '--'
 }
 
 async function loadMerchantList() {
@@ -336,11 +118,15 @@ async function loadMerchantList() {
   merchantState.error = ''
 
   try {
-    const result = await fetchPendingMerchants({
-      status: merchantState.status,
+    const params = {
       page: merchantState.pagination.page,
       page_size: merchantState.pagination.pageSize,
-    })
+    }
+    if (merchantState.status !== 'all') {
+      params.status = merchantState.status
+    }
+
+    const result = await fetchPendingMerchants(params)
     merchantState.list = resolveList(result).map((item) => normalizeRecord(item, 'merchant'))
     merchantState.pagination.total = result?.total ?? result?.pagination?.total ?? 0
   } catch (error) {
@@ -367,20 +153,22 @@ async function loadRiderList() {
       return
     }
 
-    const result = await fetchAdminRiders({
+    const params = {
       role: 'rider',
       page: riderState.pagination.page,
       limit: riderState.pagination.pageSize,
-    })
-    let items = resolveList(result).map((item) => normalizeRecord(item, 'rider'))
-
-    if (riderState.status === 'approved') {
-      items = items.filter((item) => Number(item.raw?.rider_audit_status) === 1)
-    } else if (riderState.status === 'rejected') {
-      items = items.filter((item) => Number(item.raw?.rider_audit_status) === 2)
     }
 
-    riderState.list = items
+    if (riderState.status === 'approved') {
+      params.audit_status = 'approved'
+    } else if (riderState.status === 'rejected') {
+      params.audit_status = 'rejected'
+    } else if (riderState.status === 'all') {
+      params.audit_status = 'all'
+    }
+
+    const result = await fetchAdminRiders(params)
+    riderState.list = resolveList(result).map((item) => normalizeRecord(item, 'rider'))
     riderState.pagination.total = result?.pagination?.total ?? result?.total ?? 0
   } catch (error) {
     riderState.error = error?.response?.data?.message || error?.message || '骑手待审核列表加载失败'
@@ -502,6 +290,16 @@ function handleRetry() {
   loadRiderList()
 }
 
+function handleRowCommand(command, row) {
+  if (command === 'approve') {
+    handleAudit(row, 'approve')
+    return
+  }
+  if (command === 'reject') {
+    handleAudit(row, 'reject')
+  }
+}
+
 // 工作台跳审核页时，会带 tab 参数进来。
 // 这里把路由参数和当前页签对齐，避免“点了待审核骑手，却还停在商家审核”。
 async function handleTabChange(tabName) {
@@ -559,7 +357,7 @@ onMounted(() => {
           <el-radio-button value="rejected">已驳回</el-radio-button>
           <el-radio-button value="all">全部</el-radio-button>
         </el-radio-group>
-        <span class="review-page__hint">已通过/已驳回基于平台骑手列表筛选；自配送员待审含在「待审核」中。</span>
+        <span class="review-page__hint">已通过/已驳回由后端 audit_status 参数筛选；自配送员待审含在「待审核」中。</span>
       </div>
 
       <el-alert
@@ -580,25 +378,65 @@ onMounted(() => {
         :data="currentState.list"
         empty-text="暂无待审核数据"
         border
+        size="small"
+        class="admin-table--compact"
       >
-        <el-table-column
-          v-for="column in currentColumns"
-          :key="column.key"
-          :prop="column.key"
-          :label="column.label"
-          :width="column.width"
-          min-width="140"
-          show-overflow-tooltip
-        />
+        <template v-if="activeTab === 'merchant'">
+          <el-table-column label="商家" min-width="140" show-overflow-tooltip>
+            <template #default="{ row }">
+              <div class="admin-table__stack">
+                <div class="admin-table__main">{{ row.name }}</div>
+                <div class="admin-table__sub">{{ row.phone }}</div>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column label="乡镇" min-width="88" show-overflow-tooltip>
+            <template #default="{ row }">{{ row.town }}</template>
+          </el-table-column>
+        </template>
 
-        <el-table-column label="操作" width="220" fixed="right">
+        <template v-else>
+          <el-table-column label="骑手" min-width="140" show-overflow-tooltip>
+            <template #default="{ row }">
+              <div class="admin-table__stack">
+                <div class="admin-table__main">{{ row.nickname }}</div>
+                <div class="admin-table__sub">{{ row.phone }}</div>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column label="身份/乡镇" min-width="120" show-overflow-tooltip>
+            <template #default="{ row }">
+              <div class="admin-table__stack">
+                <div class="admin-table__main">{{ row.identityType }}</div>
+                <div class="admin-table__sub">{{ row.town }}</div>
+              </div>
+            </template>
+          </el-table-column>
+        </template>
+
+        <el-table-column label="状态" width="100">
           <template #default="{ row }">
-            <div class="review-page__actions">
-              <el-button link type="primary" @click="handleView(row)">查看</el-button>
-              <template v-if="canAuditRow(row)">
-                <el-button link type="success" @click="handleAudit(row, 'approve')">通过</el-button>
-                <el-button link type="danger" @click="handleAudit(row, 'reject')">拒绝</el-button>
-              </template>
+            <el-tag type="warning" size="small">{{ row.statusText }}</el-tag>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="提交时间" width="108">
+          <template #default="{ row }">{{ formatCompactTime(row.submittedAt) }}</template>
+        </el-table-column>
+
+        <el-table-column label="操作" width="92" align="center">
+          <template #default="{ row }">
+            <div class="admin-actions--compact">
+              <el-button link type="primary" size="small" @click="handleView(row)">详情</el-button>
+              <el-dropdown v-if="canAuditRow(row)" trigger="click" @command="(command) => handleRowCommand(command, row)">
+                <el-button link size="small">审核</el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="approve">通过</el-dropdown-item>
+                    <el-dropdown-item command="reject">拒绝</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
             </div>
           </template>
         </el-table-column>
@@ -608,7 +446,7 @@ onMounted(() => {
         <el-pagination
           v-if="activeTab === 'merchant'"
           background
-          layout="total, prev, pager, next"
+          layout="total, prev, pager, next, jumper"
           :current-page="merchantState.pagination.page"
           :page-size="merchantState.pagination.pageSize"
           :total="merchantState.pagination.total"
@@ -617,7 +455,7 @@ onMounted(() => {
         <el-pagination
           v-else
           background
-          layout="total, prev, pager, next"
+          layout="total, prev, pager, next, jumper"
           :current-page="riderState.pagination.page"
           :page-size="riderState.pagination.pageSize"
           :total="riderState.pagination.total"
@@ -649,8 +487,7 @@ onMounted(() => {
               class="review-detail__image"
               preview-teleported
             />
-            <pre v-else-if="typeof item.value === 'string' && item.value.startsWith('{')" class="review-detail__json">{{ item.value }}</pre>
-            <span v-else>{{ item.value }}</span>
+            <span v-else class="detail-display__text">{{ item.value }}</span>
           </el-descriptions-item>
         </el-descriptions>
       </div>

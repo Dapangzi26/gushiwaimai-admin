@@ -2,7 +2,7 @@ import request from '../utils/request'
 import { unwrapPayload } from './helpers'
 
 export async function adminLogin(payload) {
-  const response = await request.post('/admin/auth/login', payload)
+  const response = await request.post('/admin/auth/login', payload, { skipErrorToast: true })
   return unwrapPayload(response)
 }
 

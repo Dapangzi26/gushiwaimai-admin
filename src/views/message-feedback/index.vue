@@ -3,6 +3,8 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { fetchFeedbackDetail, fetchFeedbackList, updateFeedbackStatus } from '../../api/feedback'
 import { getRequestErrorMessage } from '../../utils/http'
+import { normalizeSearchKeyword } from '../../utils/orderNo.js'
+import { formatCompactTime } from '../../utils/detail-display'
 
 const STATUS_OPTIONS = [
   { label: '待处理', value: 'pending' },
@@ -18,7 +20,9 @@ const listState = reactive({
 
 const filterState = reactive({
   status: '',
-  keyword: '',
+  submitter_name: '',
+  contact_phone: '',
+  content: '',
 })
 
 const detailVisible = ref(false)
@@ -49,7 +53,7 @@ function normalizeRecord(item) {
   return {
     id: item?.id ?? '',
     submitter_name: item?.submitter_name || item?.nickname || item?.username || item?.name || '--',
-    contact: item?.contact || item?.phone || item?.mobile || '--',
+    contact: item?.contact_phone || item?.contact || item?.submitter_phone || item?.phone || item?.mobile || '--',
     content: item?.content || item?.description || '',
     created_at: item?.created_at || item?.submit_time || item?.createdAt || '',
     status: item?.status || 'pending',
@@ -72,7 +76,9 @@ async function loadFeedbackList() {
   try {
     const result = await fetchFeedbackList({
       status: filterState.status || undefined,
-      keyword: filterState.keyword.trim() || undefined,
+      submitter_name: filterState.submitter_name.trim() || undefined,
+      contact_phone: normalizeSearchKeyword(filterState.contact_phone) || undefined,
+      content: filterState.content.trim() || undefined,
     })
     listState.items = resolveList(result).map((item) => normalizeRecord(item))
   } catch (error) {
@@ -89,7 +95,9 @@ function handleFilterSearch() {
 
 function handleFilterReset() {
   filterState.status = ''
-  filterState.keyword = ''
+  filterState.submitter_name = ''
+  filterState.contact_phone = ''
+  filterState.content = ''
   loadFeedbackList()
 }
 
@@ -161,14 +169,28 @@ onMounted(() => {
 
     <el-card class="page-shell__card feedback-page">
       <div class="feedback-toolbar">
-        <el-select v-model="filterState.status" placeholder="处理状态" clearable style="width: 140px">
+        <el-select v-model="filterState.status" placeholder="处理状态" clearable class="feedback-toolbar__status">
           <el-option v-for="item in STATUS_OPTIONS" :key="item.value" :label="item.label" :value="item.value" />
         </el-select>
         <el-input
-          v-model="filterState.keyword"
-          placeholder="搜索内容 / 联系电话"
+          v-model="filterState.submitter_name"
+          placeholder="投诉人"
           clearable
-          style="width: 220px"
+          class="feedback-toolbar__input"
+          @keyup.enter="handleFilterSearch"
+        />
+        <el-input
+          v-model="filterState.contact_phone"
+          placeholder="投诉人电话"
+          clearable
+          class="feedback-toolbar__input"
+          @keyup.enter="handleFilterSearch"
+        />
+        <el-input
+          v-model="filterState.content"
+          placeholder="投诉内容"
+          clearable
+          class="feedback-toolbar__input feedback-toolbar__input--wide"
           @keyup.enter="handleFilterSearch"
         />
         <el-button type="primary" :loading="listState.loading" @click="handleFilterSearch">查询</el-button>
@@ -192,32 +214,39 @@ onMounted(() => {
         v-loading="listState.loading"
         :data="tableData"
         border
-        class="feedback-table"
+        size="small"
+        class="admin-table--compact feedback-table"
       >
-        <el-table-column prop="submitter_name" label="提交人" min-width="120" />
-        <el-table-column prop="contact" label="联系方式" min-width="160" />
+        <el-table-column label="提交人" min-width="110" show-overflow-tooltip>
+          <template #default="{ row }">
+            <div class="admin-table__stack">
+              <div class="admin-table__main">{{ row.submitter_name || '--' }}</div>
+              <div class="admin-table__sub">{{ row.contact || '--' }}</div>
+            </div>
+          </template>
+        </el-table-column>
 
-        <el-table-column label="内容摘要" min-width="280" show-overflow-tooltip>
+        <el-table-column label="内容摘要" min-width="180" show-overflow-tooltip>
           <template #default="{ row }">
             <span>{{ getContentSummary(row.content) }}</span>
           </template>
         </el-table-column>
 
-        <el-table-column label="提交时间" min-width="170">
+        <el-table-column label="提交时间" width="108">
           <template #default="{ row }">
-            <span>{{ formatTime(row.created_at) }}</span>
+            <span>{{ formatCompactTime(row.created_at) }}</span>
           </template>
         </el-table-column>
 
-        <el-table-column label="处理状态" min-width="120">
+        <el-table-column label="处理状态" width="88">
           <template #default="{ row }">
-            <el-tag :type="getStatusTagType(row.status)">{{ getStatusLabel(row.status) }}</el-tag>
+            <el-tag :type="getStatusTagType(row.status)" size="small">{{ getStatusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="120" fixed="right">
+        <el-table-column label="操作" width="72" align="center">
           <template #default="{ row }">
-            <el-button link type="primary" @click="handleView(row)">查看详情</el-button>
+            <el-button link type="primary" size="small" @click="handleView(row)">详情</el-button>
           </template>
         </el-table-column>
 
@@ -241,9 +270,9 @@ onMounted(() => {
         />
         <template v-else-if="currentItem">
           <el-descriptions :column="1" border>
-            <el-descriptions-item label="提交人">{{ currentItem.submitter_name || '--' }}</el-descriptions-item>
-            <el-descriptions-item label="联系方式">{{ currentItem.contact || '--' }}</el-descriptions-item>
-            <el-descriptions-item label="用户提交内容">{{ currentItem.content || '--' }}</el-descriptions-item>
+            <el-descriptions-item label="投诉人">{{ currentItem.submitter_name || '--' }}</el-descriptions-item>
+            <el-descriptions-item label="投诉人电话">{{ currentItem.contact || '--' }}</el-descriptions-item>
+            <el-descriptions-item label="投诉内容">{{ currentItem.content || '--' }}</el-descriptions-item>
             <el-descriptions-item label="提交时间">{{ formatTime(currentItem.created_at) }}</el-descriptions-item>
             <el-descriptions-item label="当前状态">
               <el-tag :type="getStatusTagType(currentStatus)">{{ getStatusLabel(currentStatus) }}</el-tag>
@@ -268,3 +297,45 @@ onMounted(() => {
     </el-drawer>
   </div>
 </template>
+
+<style scoped>
+.feedback-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.feedback-toolbar__status {
+  width: 140px;
+}
+
+.feedback-toolbar__input {
+  width: 140px;
+}
+
+.feedback-toolbar__input--wide {
+  width: 200px;
+}
+
+.feedback-alert {
+  margin-bottom: 12px;
+}
+
+.feedback-detail__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.feedback-detail__label {
+  color: #606266;
+  font-size: 14px;
+}
+
+.feedback-detail__select {
+  width: 160px;
+}
+</style>

@@ -26,7 +26,12 @@ async function redirectToDispatchMap() {
       return
     }
 
-    window.location.replace(buildDispatchUrl(ticket))
+    const targetUrl = buildDispatchUrl(ticket)
+    if (!DISPATCH_MAP_URL && !import.meta.env.PROD) {
+      console.warn('[dispatch] VITE_DISPATCH_MAP_URL 未配置，将尝试:', targetUrl)
+    }
+
+    window.location.replace(targetUrl)
   } catch (error) {
     loading.value = false
     errorMessage.value = error?.response?.data?.message || error?.message || '进入调度大屏失败，请稍后重试'
@@ -49,7 +54,15 @@ onMounted(() => {
         show-icon
         :closable="false"
       />
-      <div v-else class="page-placeholder">正在签发调度凭证并进入调度大屏...</div>
+      <el-alert
+        v-else-if="!DISPATCH_MAP_URL"
+        type="warning"
+        show-icon
+        :closable="false"
+        title="调度大屏地址未配置"
+        description="请在 .env 中设置 VITE_DISPATCH_MAP_URL 指向地图调度端 dispatch_map.html 的完整 URL，否则可能白屏。"
+      />
+      <div v-if="!errorMessage" class="page-placeholder">正在签发调度凭证并进入调度大屏...</div>
     </el-card>
   </div>
 </template>

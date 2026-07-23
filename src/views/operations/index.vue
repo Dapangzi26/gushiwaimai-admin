@@ -15,7 +15,9 @@
       :closable="false"
       class="page-shell__alert"
       title="只读模式"
-      description="当前数据来自 /common/service-areas 与 /common/merchant-primary-categories，总后台暂无配置写入接口。"
+      :description="configSource === 'admin'
+        ? '数据来自 GET /admin/config。写入能力需后端实现 PUT /admin/config。'
+        : '后端 /admin/config 尚未就绪，当前读 /common/service-areas 与 /common/merchant-primary-categories。'"
     />
 
     <el-card class="page-shell__card">
@@ -58,6 +60,7 @@
 <script setup>
 // 这个文件是“总后台运营配置页”逻辑，只读拉取公共配置接口。
 import { onMounted, ref } from 'vue'
+import { fetchAdminConfig, isAdminConfigApiUnavailable } from '../../api/config'
 import { fetchMerchantPrimaryCategories, fetchServiceAreas } from '../../api/common'
 import { getRequestErrorMessage } from '../../utils/http'
 import { ElMessage } from 'element-plus'
@@ -67,6 +70,7 @@ const activeTab = ref('areas')
 const areaType = ref('')
 const areas = ref([])
 const categories = ref([])
+const configSource = ref('common')
 
 function normalizeCategories(payload) {
   if (Array.isArray(payload)) return payload
@@ -102,8 +106,22 @@ async function loadCategories() {
 
 async function loadAll() {
   loading.value = true
-  await Promise.all([loadAreas(), loadCategories()])
-  loading.value = false
+
+  try {
+    const config = await fetchAdminConfig()
+    areas.value = Array.isArray(config?.service_areas) ? config.service_areas : []
+    categories.value = normalizeCategories(config?.merchant_primary_categories)
+    configSource.value = 'admin'
+  } catch (error) {
+    if (isAdminConfigApiUnavailable(error)) {
+      configSource.value = 'common'
+      await Promise.all([loadAreas(), loadCategories()])
+    } else {
+      ElMessage.error(getRequestErrorMessage(error, '运营配置加载失败'))
+    }
+  } finally {
+    loading.value = false
+  }
 }
 
 onMounted(() => {

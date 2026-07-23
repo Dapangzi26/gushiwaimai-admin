@@ -1,4 +1,4 @@
-﻿<!-- 这个页面是“总后台权限角色页”。当前系统仅单一 admin 角色，完整 RBAC 待后端接口。 -->
+<!-- 这个页面是“总后台权限角色页”。当前系统仅单一 admin 角色，完整 RBAC 待后端接口。 -->
 <template>
   <div class="page-shell">
     <h1 class="page-shell__title">权限角色</h1>
@@ -20,12 +20,29 @@
         <el-table-column prop="phone" label="手机号" min-width="140" />
         <el-table-column prop="role" label="角色" width="120">
           <template #default="{ row }">
-            <el-tag type="primary">{{ row.role }}</el-tag>
+            <el-tag type="primary">{{ getRoleLabel(row.role) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="权限范围" min-width="280">
           <template #default>
             审核、订单、通知、反馈、仪表盘（全量 admin 权限）
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
+    <el-card v-if="usingServerRoles" class="page-shell__card">
+      <template #header>系统角色（GET /admin/roles）</template>
+      <el-table :data="serverRoles" border v-loading="rolesLoading">
+        <el-table-column prop="name" label="角色" width="140" />
+        <el-table-column prop="scope" label="权限范围" min-width="320">
+          <template #default="{ row }">{{ row.scope || row.description || '--' }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="100">
+          <template #default="{ row }">
+            <el-tag :type="row.enabled === false ? 'info' : 'success'">
+              {{ row.enabled === false ? '停用' : '启用' }}
+            </el-tag>
           </template>
         </el-table-column>
       </el-table>
@@ -48,10 +65,16 @@
 
 <script setup>
 // 这个文件是“总后台权限角色页”逻辑，展示当前 admin 与规划角色。
-import { computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useAuthStore } from '../../store/modules/auth'
+import { fetchAdminRoles, isRolesApiUnavailable } from '../../api/roles'
+import { getRoleLabel } from '../../utils/detail-display'
+import { resolveList } from '../../utils/list'
 
 const authStore = useAuthStore()
+const rolesLoading = ref(false)
+const serverRoles = ref([])
+const usingServerRoles = ref(false)
 
 const adminRows = computed(() => {
   const admin = authStore.adminInfo
@@ -72,4 +95,23 @@ const plannedRoles = [
   { name: '财务专员', scope: '支付结算、退款仲裁、对账导出' },
   { name: '客服专员', scope: '投诉建议、订单取消/退款协助' },
 ]
+
+async function loadServerRoles() {
+  rolesLoading.value = true
+  try {
+    const result = await fetchAdminRoles()
+    serverRoles.value = resolveList(result)
+    usingServerRoles.value = serverRoles.value.length > 0
+  } catch (error) {
+    if (!isRolesApiUnavailable(error)) {
+      console.warn('[roles] load failed:', error)
+    }
+  } finally {
+    rolesLoading.value = false
+  }
+}
+
+onMounted(() => {
+  loadServerRoles()
+})
 </script>
