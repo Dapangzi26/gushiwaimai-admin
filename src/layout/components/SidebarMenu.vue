@@ -1,17 +1,23 @@
-﻿﻿﻿﻿﻿﻿﻿<script setup>
-import { Bell, Checked, Compass, CreditCard, House, Lock, Management, Menu, OfficeBuilding, Operation, Setting, ShoppingCart, User, Van } from '@element-plus/icons-vue'
+﻿<script setup>
+import { Bell, Checked, Compass, CreditCard, House, Management, Menu, OfficeBuilding, Operation, Setting, ShoppingCart, Shop, User, Van } from '@element-plus/icons-vue'
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 
 const route = useRoute()
 const activeMenu = computed(() => route.path)
-const defaultOpeneds = computed(() => (route.path.startsWith('/messages/') ? ['messages-group'] : []))
+const defaultOpeneds = computed(() => {
+  if (route.path.startsWith('/messages/') || route.path === '/notify-delivery') {
+    return ['messages-group']
+  }
+  return []
+})
 
+// S3-2：/admin/roles 后端未实现，侧栏隐藏「权限角色」（路由与只读页保留，禁止假造 RBAC）
 const menuItems = [
   { path: '/workbench', title: '工作台', icon: House },
   { path: '/platform-users', title: '平台用户', icon: User },
-  { path: '/roles', title: '权限角色', icon: Lock },
   { path: '/merchants', title: '商家管理', icon: OfficeBuilding },
+  { path: '/franchise-brands', title: '加盟品牌', icon: Shop },
   { path: '/riders', title: '骑手管理', icon: Van },
   { path: '/town-stations', title: '站长乡镇管理', icon: Management },
   { path: '/orders', title: '订单中心', icon: ShoppingCart },
@@ -26,6 +32,7 @@ const menuItems = [
     children: [
       { path: '/messages/system-notifications', title: '系统通知' },
       { path: '/messages/feedback', title: '投诉建议' },
+      { path: '/notify-delivery', title: '语音提醒监控' },
     ],
   },
   { path: '/audit-logs', title: '日志审计', icon: Menu },
@@ -35,15 +42,18 @@ const menuItems = [
 
 <template>
   <div class="sidebar-menu">
-    <div class="sidebar-menu__brand">固始县总后台</div>
+    <div class="sidebar-menu__brand">
+      <span class="sidebar-menu__brand-title">固始县总后台</span>
+      <span class="sidebar-menu__brand-sub">外卖平台运营中心</span>
+    </div>
     <el-scrollbar>
       <el-menu
         router
         :default-active="activeMenu"
         :default-openeds="defaultOpeneds"
         class="sidebar-menu__nav"
-        background-color="#001529"
-        text-color="rgba(255, 255, 255, 0.75)"
+        background-color="transparent"
+        text-color="rgba(255, 255, 255, 0.65)"
         active-text-color="#ffffff"
       >
         <template v-for="item in menuItems" :key="item.path">

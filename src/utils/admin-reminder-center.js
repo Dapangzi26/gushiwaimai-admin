@@ -20,6 +20,9 @@ const DEFAULT_SETTINGS = {
   alarmRepeatCount: 3,
 }
 
+// 待接单预警（支付后约 4 分钟商家仍未接单）专用配音，走 public/audio 静态目录。
+const LOCAL_AUDIO_PATH = '/audio/超时未接单.mp3'
+
 let audioContext = null
 let recentDedupeMap = new Map()
 let cachedChineseVoice = null
@@ -172,6 +175,27 @@ function playTone(ctx, frequency, durationMs, gainValue = 0.28) {
       }, durationMs)
     } catch (error) {
       resolve()
+    }
+  })
+}
+
+async function playLocalAudio(settings = loadSettings()) {
+  if (!settings.speechEnabled) {
+    return false
+  }
+
+  return new Promise((resolve) => {
+    try {
+      const audio = new Audio(LOCAL_AUDIO_PATH)
+      audio.volume = Math.max(Number(settings.speechVolume) || 1, 0.2)
+      audio.onended = () => resolve(true)
+      audio.onerror = () => resolve(false)
+      const playPromise = audio.play()
+      if (playPromise && typeof playPromise.catch === 'function') {
+        playPromise.catch(() => resolve(false))
+      }
+    } catch (error) {
+      resolve(false)
     }
   })
 }
@@ -364,7 +388,10 @@ export async function unlockAudioPlayback() {
   }
 
   await playAlertSound({ ...loadSettings(), alarmRepeatCount: 1 })
-  await speakText('待接单语音提醒已开启', loadSettings())
+  const localPlayed = await playLocalAudio(loadSettings())
+  if (!localPlayed) {
+    await speakText('待接单语音提醒已开启', loadSettings())
+  }
   writeAudioUnlockedFlag(true)
   notifyAudioStatusChange()
   return getAudioStatus()
@@ -373,6 +400,10 @@ export async function unlockAudioPlayback() {
 export async function testVoiceReminder() {
   const settings = loadSettings()
   await playAlertSound(settings)
+  const localPlayed = await playLocalAudio(settings)
+  if (localPlayed) {
+    return true
+  }
   const spoke = await speakText('这是一条待接单预警测试播报，请确认您能听到语音', settings)
   if (!spoke) {
     throw new Error('语音播报失败，请检查浏览器是否允许声音，或点击顶栏「开启语音」后重试')
@@ -392,7 +423,8 @@ export function createAdminReminderCenter(options = {}) {
     markDedupe(alert.dedupeKey)
 
     await playAlertSound(settings)
-    const spoke = await speakText(alert.speechText, settings)
+    const localPlayed = await playLocalAudio(settings)
+    const spoke = localPlayed ? true : await speakText(alert.speechText, settings)
     if (!spoke && settings.speechEnabled) {
       await playAlertSound({ ...settings, alarmRepeatCount: Math.max(settings.alarmRepeatCount, 4) })
     }

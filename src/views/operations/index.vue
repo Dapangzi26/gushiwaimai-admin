@@ -4,7 +4,7 @@
     <div class="page-shell__header">
       <div>
         <h1 class="page-shell__title">运营配置</h1>
-        <p class="page-shell__subtitle">只读查看服务区域与商家类目配置。在线编辑能力需后端 /admin/config 接口。</p>
+        <p class="page-shell__subtitle">只读查看服务区域与商家类目配置。在线编辑未开放（后端无 PUT /admin/config）。</p>
       </div>
       <el-button type="primary" :loading="loading" @click="loadAll">刷新</el-button>
     </div>
@@ -16,8 +16,8 @@
       class="page-shell__alert"
       title="只读模式"
       :description="configSource === 'admin'
-        ? '数据来自 GET /admin/config。写入能力需后端实现 PUT /admin/config。'
-        : '后端 /admin/config 尚未就绪，当前读 /common/service-areas 与 /common/merchant-primary-categories。'"
+        ? '数据来自 GET /admin/config（read_only）。写入接口未实现，本页无保存/编辑入口。'
+        : 'GET /admin/config 不可用，当前降级读 /common/service-areas 与 /common/merchant-primary-categories。'"
     />
 
     <el-card class="page-shell__card">

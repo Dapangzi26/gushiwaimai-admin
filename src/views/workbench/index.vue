@@ -3,7 +3,7 @@
 // 这里除了展示统计数字，还要负责把你快速带到对应业务页，不然看到了待办数字却点不进去，链路会断。
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Bell, Refresh, Shop, ShoppingCart, Van, Wallet } from '@element-plus/icons-vue'
+import { Refresh, ShoppingCart, Van, Wallet, WarningFilled } from '@element-plus/icons-vue'
 import { fetchDashboardOverview, fetchDashboardPendingCounts } from '../../api/dashboard'
 import { fetchPendingRefundCount } from '../../api/orders'
 import { fetchPendingWithdrawCount } from '../../api/withdraw'
@@ -27,116 +27,110 @@ const todayText = computed(() => {
   return `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日 ${weekDays[now.getDay()]}`
 })
 
-const overviewCards = [
-  {
-    key: 'today_orders',
-    label: '今日订单',
-    hint: '查看今日全部订单',
-    theme: 'blue',
-    icon: ShoppingCart,
-    clickable: true,
-    route: { path: '/orders', query: { page: '1', limit: '10' } },
-  },
-  {
-    key: 'active_merchants',
-    label: '活跃商家',
-    hint: '已上线商家列表',
-    theme: 'green',
-    icon: Shop,
-    clickable: true,
-    route: { path: '/merchants', query: { status: 'approved', page: '1' } },
-  },
+const primarySpotlight = [
   {
     key: 'online_riders',
     label: '在线骑手',
-    hint: '平台骑手实时状态',
+    sub: '点击查看骑手列表',
     theme: 'cyan',
     icon: Van,
+    source: 'overview',
     clickable: true,
     route: { path: '/riders', query: { role: 'rider', page: '1' } },
   },
   {
-    key: 'pending_review_items',
-    label: '待处理事项',
-    hint: '审核中心待办汇总',
-    theme: 'orange',
-    icon: Bell,
+    key: 'today_orders',
+    label: '今日订单',
+    sub: '点击查看今日全部订单',
+    theme: 'blue',
+    icon: ShoppingCart,
+    source: 'overview',
     clickable: true,
-    route: { path: '/reviews', query: { tab: 'merchant' } },
+    route: { path: '/orders', query: { page: '1', limit: '10' } },
+  },
+  {
+    key: 'pending_refunds',
+    label: '待处理售后',
+    sub: '待仲裁退款',
+    theme: 'rose',
+    icon: WarningFilled,
+    source: 'pending',
+    clickable: true,
+    route: { path: '/orders', query: { tab: 'refunds', refund_status: 'pending', page: '1', limit: '10' } },
   },
 ]
 
-const pendingGroups = [
+const secondaryTiles = [
   {
-    key: 'audit',
-    title: '审核待办',
-    theme: 'purple',
-    items: [
-      {
-        key: 'pending_merchants',
-        label: '待审核商家',
-        clickable: true,
-        route: { path: '/reviews', query: { tab: 'merchant' } },
-      },
-      {
-        key: 'pending_riders',
-        label: '待审核骑手',
-        clickable: true,
-        route: { path: '/reviews', query: { tab: 'rider' } },
-      },
-    ],
+    key: 'active_merchants',
+    label: '活跃商家',
+    source: 'overview',
+    clickable: true,
+    route: { path: '/merchants', query: { status: 'approved', page: '1' } },
   },
   {
-    key: 'order',
-    title: '订单异常',
-    theme: 'orange',
-    items: [
-      {
-        key: 'abnormal_orders',
-        label: '异常订单',
-        clickable: true,
-        route: { path: '/orders', query: { status: '7', page: '1', limit: '10' } },
-      },
-      {
-        key: 'offline_riders',
-        label: '离线骑手',
-        clickable: true,
-        route: { path: '/riders', query: { role: 'rider', online_status: 'offline', page: '1' } },
-      },
-      {
-        key: 'timeout_unaccepted_orders',
-        label: '待接单预警',
-        clickable: true,
-        route: {
-          path: '/orders',
-          query: {
-            exception_type: 'timeout_unaccepted',
-            timeout_minutes: '5',
-            page: '1',
-            limit: '10',
-          },
-        },
-      },
-      {
-        key: 'pending_refunds',
-        label: '待仲裁退款',
-        clickable: true,
-        route: { path: '/orders', query: { tab: 'refunds', refund_status: 'pending', page: '1', limit: '10' } },
-      },
-    ],
+    key: 'pending_review_items',
+    label: '待审核合计',
+    source: 'overview',
+    clickable: true,
+    route: { path: '/reviews', query: { tab: 'merchant' } },
   },
   {
-    key: 'finance',
-    title: '财务待办',
-    theme: 'green',
-    items: [
-      {
-        key: 'pending_withdrawals',
-        label: '待处理提现',
-        clickable: true,
-        route: { path: '/payments', query: { tab: 'withdraw' } },
+    key: 'pending_merchants',
+    label: '待审商家',
+    source: 'pending',
+    clickable: true,
+    route: { path: '/reviews', query: { tab: 'merchant' } },
+  },
+  {
+    key: 'pending_riders',
+    label: '待审骑手',
+    source: 'pending',
+    clickable: true,
+    route: { path: '/reviews', query: { tab: 'rider' } },
+  },
+  {
+    key: 'pending_order_reviews',
+    label: '待审评价',
+    source: 'pending',
+    clickable: true,
+    route: { path: '/reviews', query: { tab: 'order-review' } },
+  },
+  {
+    key: 'abnormal_orders',
+    label: '异常订单',
+    source: 'pending',
+    clickable: true,
+    route: { path: '/orders', query: { status: '7', page: '1', limit: '10' } },
+  },
+  {
+    key: 'offline_riders',
+    label: '离线骑手',
+    source: 'pending',
+    clickable: true,
+    route: { path: '/riders', query: { role: 'rider', online_status: 'offline', page: '1' } },
+  },
+  {
+    key: 'timeout_unaccepted_orders',
+    label: '待接单预警',
+    source: 'pending',
+    clickable: true,
+    route: {
+      path: '/orders',
+      query: {
+        exception_type: 'timeout_unaccepted',
+        timeout_minutes: '5',
+        page: '1',
+        limit: '10',
       },
-    ],
+    },
+  },
+  {
+    key: 'pending_withdrawals',
+    label: '待处理提现',
+    source: 'pending',
+    clickable: true,
+    route: { path: '/payments', query: { tab: 'withdraw' } },
   },
 ]
 
@@ -154,12 +148,12 @@ function isPendingAlert(value) {
   return parseCount(value) > 0
 }
 
-function groupTotal(group) {
-  const total = group.items.reduce((sum, item) => sum + parseCount(pendingCounts.value?.[item.key]), 0)
-  return total > 0 ? total : '--'
+function getTileValue(tile) {
+  const source = tile.source === 'overview' ? overview.value : pendingCounts.value
+  return formatValue(source, tile.key)
 }
 
-function handleCardClick(item) {
+function handleTileClick(item) {
   if (!item?.clickable || !item.route) {
     return
   }
@@ -205,42 +199,51 @@ onUnmounted(() => {
 
 <template>
   <div class="page-shell workbench-page">
-    <section class="workbench-hero">
-      <div class="workbench-hero__main">
-        <p class="workbench-hero__eyebrow">{{ todayText }}</p>
-        <h1 class="workbench-hero__title">你好，{{ adminName }}</h1>
-        <p class="workbench-hero__desc">固始县外卖管理总后台 · 今日运营概览与待办提醒</p>
+    <header class="workbench-topbar">
+      <div class="workbench-topbar__greet">
+        <p class="workbench-topbar__date">{{ todayText }}</p>
+        <h1 class="workbench-topbar__title">你好，{{ adminName }}</h1>
       </div>
-      <el-button type="primary" :icon="Refresh" :loading="loading" @click="loadDashboardData">
+      <el-button
+        class="workbench-topbar__refresh"
+        type="primary"
+        :icon="Refresh"
+        :loading="loading"
+        @click="loadDashboardData"
+      >
         刷新数据
       </el-button>
-    </section>
+    </header>
 
-    <div class="workbench-grid">
+    <section class="workbench-spotlight" aria-label="核心运营指标">
       <article
-        v-for="item in overviewCards"
+        v-for="item in primarySpotlight"
         :key="item.key"
-        class="workbench-kpi"
+        class="workbench-spotlight__cell"
         :class="[
-          `workbench-kpi--${item.theme}`,
-          { 'workbench-kpi--clickable': item.clickable },
+          `workbench-spotlight__cell--${item.theme}`,
+          { 'workbench-spotlight__cell--clickable': item.clickable },
         ]"
-        @click="handleCardClick(item)"
+        @click="handleTileClick(item)"
       >
-        <div class="workbench-kpi__icon">
-          <el-icon :size="22">
+        <div class="workbench-spotlight__icon">
+          <el-icon :size="24">
             <component :is="item.icon" />
           </el-icon>
         </div>
-        <div class="workbench-kpi__body">
-          <div class="workbench-kpi__label">{{ item.label }}</div>
-          <div class="workbench-kpi__value" :class="{ 'is-loading': loading }">
-            {{ loading ? '' : formatValue(overview, item.key) }}
-          </div>
-          <div class="workbench-kpi__hint">{{ item.hint }}</div>
+        <div class="workbench-spotlight__label">{{ item.label }}</div>
+        <div
+          class="workbench-spotlight__value"
+          :class="{
+            'is-loading': loading,
+            'is-alert': !loading && isPendingAlert(getTileValue(item)),
+          }"
+        >
+          {{ loading ? '' : getTileValue(item) }}
         </div>
+        <div class="workbench-spotlight__sub">{{ item.sub }}</div>
       </article>
-    </div>
+    </section>
 
     <el-alert
       v-if="loadError"
@@ -255,46 +258,35 @@ onUnmounted(() => {
       </template>
     </el-alert>
 
-    <section class="workbench-groups">
-      <article
-        v-for="group in pendingGroups"
-        :key="group.key"
-        class="workbench-group"
-      >
-        <header class="workbench-group__header">
-          <div class="workbench-group__title-wrap">
-            <span class="workbench-group__dot" :class="`workbench-group__dot--${group.theme}`" />
-            <h2 class="workbench-group__title">{{ group.title }}</h2>
-          </div>
-          <span class="workbench-group__total">合计 {{ groupTotal(group) }}</span>
-        </header>
-
-        <div class="workbench-group__list">
+    <section class="workbench-mosaic" aria-label="其他待办指标">
+      <h2 class="workbench-mosaic__heading">其他待办</h2>
+      <div class="workbench-mosaic__grid">
+        <article
+          v-for="item in secondaryTiles"
+          :key="item.key"
+          class="workbench-mosaic__cell"
+          :class="{ 'workbench-mosaic__cell--clickable': item.clickable }"
+          @click="handleTileClick(item)"
+        >
+          <div class="workbench-mosaic__label">{{ item.label }}</div>
           <div
-            v-for="item in group.items"
-            :key="item.key"
-            class="workbench-group__item"
-            :class="{ 'workbench-group__item--clickable': item.clickable }"
-            @click="handleCardClick(item)"
+            class="workbench-mosaic__value"
+            :class="{
+              'is-loading': loading,
+              'is-alert': !loading && isPendingAlert(getTileValue(item)),
+            }"
           >
-            <span class="workbench-group__label">{{ item.label }}</span>
-            <span
-              class="workbench-group__count"
-              :class="{
-                'workbench-group__count--alert': !loading && isPendingAlert(pendingCounts[item.key]),
-                'is-loading': loading,
-              }"
-            >
-              {{ loading ? '' : formatValue(pendingCounts, item.key) }}
-            </span>
+            {{ loading ? '' : getTileValue(item) }}
           </div>
-        </div>
-      </article>
+        </article>
+      </div>
     </section>
 
     <footer class="workbench-footnote">
       <el-icon><Wallet /></el-icon>
-      <span>点击指标卡片或待办项可快速跳转到对应业务页面</span>
+      <span>点击任意格子可跳转到对应业务页面</span>
     </footer>
   </div>
 </template>
+
+

@@ -252,9 +252,11 @@ function buildSearchParams() {
     page_size: pagination.pageSize,
   }
 
-  // 旧后端不支持 status=all 会 400；省略时新后端默认 all，旧后端默认待审（部署新后端后行为自动正确）
+  // 后端已支持 status=all；「全部」须显式传参，避免省略时默认 pending。
   if (statusFilter.value !== 'all') {
     params.status = statusFilter.value
+  } else {
+    params.status = 'all'
   }
 
   const storeName = filters.storeName.trim()

@@ -223,6 +223,10 @@ function normalizeTownName(row) {
 }
 
 function getTownRiderCount(stationRow) {
+  if (Number.isFinite(Number(stationRow?.town_rider_count))) {
+    return Number(stationRow.town_rider_count)
+  }
+
   const town = normalizeTownName(stationRow)
   if (!town) return 0
 

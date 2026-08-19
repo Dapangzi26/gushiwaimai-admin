@@ -14,28 +14,35 @@ import {
   fetchAdminOrders,
   fetchAdminRefunds,
 } from '../../api/orders'
+import TimeoutPlaceholderTab from './TimeoutPlaceholderTab.vue'
+import RefundAuditTab from './RefundAuditTab.vue'
+import OrderListTab from './OrderListTab.vue'
 import { getRequestErrorMessage } from '../../utils/http'
 import { formatOrderNoDisplay, looksLikeOrderNumber, normalizeOrderNoDigits, normalizeSearchKeyword } from '../../utils/orderNo.js'
 import {
+  buildAssetUrl,
   buildDetailEntries,
   getApplySourceLabel,
   getResponsibilityTypeLabel,
-  formatCompactTime,
   ORDER_BASE_FIELD_ORDER,
   ORDER_DETAIL_HIDDEN,
   ORDER_PARTY_FIELD_ORDER,
 } from '../../utils/detail-display'
+import { getBackendOrigin } from '../../utils/backend-origin'
 
 const route = useRoute()
 const router = useRouter()
+const backendOrigin = getBackendOrigin()
 
 const ORDER_TAB = 'orders'
 const REFUND_TAB = 'refunds'
+const TIMEOUT_TAB = 'timeout'
 const DEFAULT_PAGE_SIZE = 10
 
 const TAB_OPTIONS = [
   { label: '订单列表', value: ORDER_TAB },
   { label: '售后退款 / 平台介入', value: REFUND_TAB },
+  { label: '订单超时', value: TIMEOUT_TAB },
 ]
 
 const BUSINESS_OPTIONS = [
@@ -49,8 +56,9 @@ const STATUS_OPTIONS = [
   { label: '待接单', value: '1' },
   { label: '备餐中', value: '2' },
   { label: '待配送', value: '3' },
-  { label: '骑手已接单', value: '4' },
+  { label: '待取餐', value: '4' },
   { label: '配送中', value: '5' },
+  { label: '已送达待确认', value: '8' },
   { label: '已完成', value: '6' },
   { label: '已取消', value: '7' },
 ]
@@ -67,6 +75,14 @@ const REFUND_STATUS_OPTIONS = [
   { label: '全部', value: 'all' },
 ]
 
+const TIMEOUT_STATUS_OPTIONS = [
+  { label: '全部', value: '' },
+  { label: '待提醒', value: 'pending' },
+  { label: '已提醒', value: 'reminded' },
+  { label: '已接单', value: 'accepted' },
+]
+
+const activeTab = ref(ORDER_TAB)
 const highlightOrderId = ref('')
 
 const orderListState = reactive({
@@ -107,8 +123,12 @@ const refundPagination = reactive({
   pageSize: DEFAULT_PAGE_SIZE,
 })
 
-const orderTableData = computed(() => orderListState.items)
-const refundTableData = computed(() => refundListState.items)
+const timeoutFilters = reactive(createDefaultTimeoutFilters())
+
+const timeoutPagination = reactive({
+  page: 1,
+  pageSize: DEFAULT_PAGE_SIZE,
+})
 
 // 取消申请仍然走旧链路，这里单独收口，避免和售后退款混在一起误审。
 const pendingCancelRefund = computed(() => {
@@ -144,7 +164,7 @@ const detailSections = computed(() => {
     return []
   }
 
-  return [
+  const sections = [
     { key: 'base', title: '订单基础信息', items: buildDetailEntries(detailData.value, { fieldOrder: ORDER_BASE_FIELD_ORDER, hiddenFields: ORDER_DETAIL_HIDDEN }) },
     { key: 'merchant', title: '商家信息', items: buildDetailEntries(detailData.value?.merchant, { fieldOrder: ORDER_PARTY_FIELD_ORDER }) },
     { key: 'buyer', title: '用户信息', items: buildDetailEntries(detailData.value?.buyer, { fieldOrder: ORDER_PARTY_FIELD_ORDER }) },
@@ -152,7 +172,19 @@ const detailSections = computed(() => {
     { key: 'refund', title: '退款记录', items: Array.isArray(detailData.value?.refunds) ? detailData.value.refunds : [] },
     { key: 'logs', title: '订单日志', items: Array.isArray(detailData.value?.logs) ? detailData.value.logs : [] },
   ]
+
+  return sections.filter((section) => section.key === 'base' || section.key === 'refund' || section.key === 'logs' || section.items.length > 0)
 })
+
+const orderItems = computed(() => {
+  const list = detailData.value?.order_items
+  return Array.isArray(list) ? list : []
+})
+
+function resolveOrderItemImage(item) {
+  const raw = item?.image_thumb || item?.image || item?.image_detail || ''
+  return buildAssetUrl(raw, backendOrigin)
+}
 
 function createDefaultOrderFilters() {
   return {
@@ -171,6 +203,21 @@ function createDefaultRefundFilters() {
   return {
     status: 'pending',
   }
+}
+
+function createDefaultTimeoutFilters() {
+  return {
+    status: '',
+    merchant_name: '',
+    keyword: '',
+  }
+}
+
+function resolveActiveTabFromQuery(query) {
+  const tab = getQueryString(query.tab)
+  if (tab === REFUND_TAB) return REFUND_TAB
+  if (tab === TIMEOUT_TAB) return TIMEOUT_TAB
+  return ORDER_TAB
 }
 
 function resolveList(payload) {
@@ -261,6 +308,10 @@ function normalizeRefundRecord(item) {
     merchant_name: item?.merchant?.name || '--',
     merchant_town_name: item?.merchant?.town_name || '--',
     order_type: item?.order_type || '',
+    // B-8：平台能否仲裁，只读后端 can_admin_arbitrate，不在前端镜像 audit_role 规则
+    can_admin_arbitrate: typeof item?.can_admin_arbitrate === 'boolean'
+      ? item.can_admin_arbitrate
+      : null,
     raw: item,
   }
 }
@@ -324,7 +375,7 @@ function getRefundQueryParams() {
 }
 
 function syncStateFromRoute(query) {
-  activeTab.value = getQueryString(query.tab) === REFUND_TAB ? REFUND_TAB : ORDER_TAB
+  activeTab.value = resolveActiveTabFromQuery(query)
 
   if (activeTab.value === ORDER_TAB) {
     orderFilters.business_type = getQueryString(query.business_type)
@@ -345,6 +396,16 @@ function syncStateFromRoute(query) {
     return
   }
 
+  if (activeTab.value === TIMEOUT_TAB) {
+    timeoutFilters.status = getQueryString(query.timeout_status)
+    timeoutFilters.merchant_name = getQueryString(query.merchant_name)
+    timeoutFilters.keyword = getQueryString(query.keyword)
+    timeoutPagination.page = toPositiveNumber(query.page, 1)
+    timeoutPagination.pageSize = toPositiveNumber(query.limit ?? query.page_size, DEFAULT_PAGE_SIZE)
+    highlightOrderId.value = ''
+    return
+  }
+
   refundFilters.status = getQueryString(query.refund_status) || 'pending'
   refundPagination.page = toPositiveNumber(query.page, 1)
   refundPagination.pageSize = toPositiveNumber(query.limit ?? query.page_size, DEFAULT_PAGE_SIZE)
@@ -359,6 +420,18 @@ function buildCurrentRouteQuery() {
       page: String(refundPagination.page),
       limit: String(refundPagination.pageSize),
     }
+  }
+
+  if (activeTab.value === TIMEOUT_TAB) {
+    const query = {
+      tab: TIMEOUT_TAB,
+      page: String(timeoutPagination.page),
+      limit: String(timeoutPagination.pageSize),
+    }
+    if (timeoutFilters.status) query.timeout_status = timeoutFilters.status
+    if (timeoutFilters.merchant_name.trim()) query.merchant_name = timeoutFilters.merchant_name.trim()
+    if (timeoutFilters.keyword.trim()) query.keyword = timeoutFilters.keyword.trim()
+    return query
   }
 
   const query = {
@@ -393,7 +466,7 @@ async function replaceCurrentRouteQuery() {
   if (JSON.stringify(nextQuery) === JSON.stringify(currentQuery)) {
     if (activeTab.value === REFUND_TAB) {
       await loadRefunds()
-    } else {
+    } else if (activeTab.value === ORDER_TAB) {
       await loadOrders()
     }
     return
@@ -443,6 +516,8 @@ async function handleTabChange(tabName) {
 
   if (tabName === REFUND_TAB) {
     refundPagination.page = 1
+  } else if (tabName === TIMEOUT_TAB) {
+    timeoutPagination.page = 1
   } else {
     orderPagination.page = 1
   }
@@ -494,6 +569,8 @@ async function handleOrderNoClick(row) {
 async function handleSearch() {
   if (activeTab.value === REFUND_TAB) {
     refundPagination.page = 1
+  } else if (activeTab.value === TIMEOUT_TAB) {
+    timeoutPagination.page = 1
   } else {
     orderPagination.page = 1
     relaxFiltersForOrderNumberSearch()
@@ -506,6 +583,10 @@ async function handleReset() {
     Object.assign(refundFilters, createDefaultRefundFilters())
     refundPagination.page = 1
     refundPagination.pageSize = DEFAULT_PAGE_SIZE
+  } else if (activeTab.value === TIMEOUT_TAB) {
+    Object.assign(timeoutFilters, createDefaultTimeoutFilters())
+    timeoutPagination.page = 1
+    timeoutPagination.pageSize = DEFAULT_PAGE_SIZE
   } else {
     Object.assign(orderFilters, createDefaultOrderFilters())
     orderPagination.page = 1
@@ -518,6 +599,8 @@ async function handleReset() {
 async function handleCurrentChange(page) {
   if (activeTab.value === REFUND_TAB) {
     refundPagination.page = page
+  } else if (activeTab.value === TIMEOUT_TAB) {
+    timeoutPagination.page = page
   } else {
     orderPagination.page = page
   }
@@ -528,6 +611,9 @@ async function handleSizeChange(size) {
   if (activeTab.value === REFUND_TAB) {
     refundPagination.page = 1
     refundPagination.pageSize = size
+  } else if (activeTab.value === TIMEOUT_TAB) {
+    timeoutPagination.page = 1
+    timeoutPagination.pageSize = size
   } else {
     orderPagination.page = 1
     orderPagination.pageSize = size
@@ -789,57 +875,6 @@ function formatTime(value) {
   return date.toLocaleString('zh-CN', { hour12: false })
 }
 
-function formatWaitMinutes(value) {
-  const minutes = Number(value)
-  if (!Number.isFinite(minutes) || minutes < 0) {
-    return '--'
-  }
-
-  if (minutes < 60) {
-    return `${minutes} 分钟`
-  }
-
-  const hour = Math.floor(minutes / 60)
-  const rest = minutes % 60
-  return rest ? `${hour} 小时 ${rest} 分钟` : `${hour} 小时`
-}
-
-function resolveExceptionTags(row) {
-  const tags = []
-  if (row.primary_exception_label) {
-    tags.push(row.primary_exception_label)
-  }
-
-  for (const item of row.exception_tags) {
-    const label = typeof item === 'string' ? item : item?.label
-    if (label && !tags.includes(label)) {
-      tags.push(label)
-    }
-  }
-
-  return tags
-}
-
-function getBusinessTagType(label) {
-  if (label.includes('乡镇')) return 'success'
-  return 'primary'
-}
-
-function getOrderStatusTagType(label) {
-  if (label.includes('完成')) return 'success'
-  if (label.includes('取消')) return 'info'
-  if (label.includes('配送') || label.includes('备餐')) return 'warning'
-  if (label.includes('待')) return 'danger'
-  return ''
-}
-
-function getRefundStatusTagType(status) {
-  if (Number(status) === 2) return 'success'
-  if (Number(status) === 3) return 'danger'
-  if (Number(status) === 4) return 'info'
-  return 'warning'
-}
-
 function getRefundAuditChannelLabel(refund) {
   if (!refund) {
     return '--'
@@ -868,11 +903,10 @@ function getRefundAuditChannelLabel(refund) {
   return '平台直接处理'
 }
 
-function isRefundRowHighlighted(row) {
-  return Boolean(row?.is_merchant_audit_overdue || row?.is_merchant_escalated)
-}
-
-/** 平台是否可仲裁该笔售后退款（与后端 assertPlatformCanArbitrateRefund 对齐） */
+/**
+ * 平台是否可仲裁该笔售后退款（C3：只读后端 can_admin_arbitrate）。
+ * 缺字段时不猜业务规则，默认不可操作，避免与 policy 漂移。
+ */
 function canAdminArbitrateRefund(row) {
   if (!row || Number(row.status) !== 0) {
     return false
@@ -882,28 +916,14 @@ function canAdminArbitrateRefund(row) {
     return false
   }
 
-  const auditRole = String(row.audit_role || '').trim().toLowerCase()
-  if (auditRole === 'merchant' || auditRole === 'station') {
-    return false
+  if (typeof row.can_admin_arbitrate === 'boolean') {
+    return row.can_admin_arbitrate
+  }
+  if (typeof row.raw?.can_admin_arbitrate === 'boolean') {
+    return row.raw.can_admin_arbitrate
   }
 
-  const orderType = String(row.order_type || row.raw?.order_type || '').trim().toLowerCase()
-  if (!auditRole && orderType === 'town') {
-    return false
-  }
-
-  return true
-}
-
-function getOrderRowClassName({ row }) {
-  if (highlightOrderId.value && String(row.id) === String(highlightOrderId.value)) {
-    return 'orders-table__row--highlight'
-  }
-  return ''
-}
-
-function getRefundRowClassName({ row }) {
-  return isRefundRowHighlighted(row) ? 'orders-table__row--highlight' : ''
+  return false
 }
 
 function getRefundAuditBannerTitle(refund) {
@@ -955,7 +975,7 @@ watch(
 
     if (activeTab.value === REFUND_TAB) {
       await loadRefunds()
-    } else {
+    } else if (activeTab.value === ORDER_TAB) {
       await loadOrders()
       await scrollToHighlightedOrder()
     }
@@ -978,300 +998,45 @@ watch(
         />
       </el-tabs>
 
-      <template v-if="activeTab === ORDER_TAB">
-        <el-form :inline="true" class="orders-filters" @submit.prevent>
-          <el-form-item label="业务类型">
-            <el-select v-model="orderFilters.business_type" class="orders-filter__select">
-              <el-option
-                v-for="item in BUSINESS_OPTIONS"
-                :key="item.value || 'all-business'"
-                :label="item.label"
-                :value="item.value"
-              />
-            </el-select>
-          </el-form-item>
+      <OrderListTab
+        v-if="activeTab === ORDER_TAB"
+        :filters="orderFilters"
+        :business-options="BUSINESS_OPTIONS"
+        :status-options="STATUS_OPTIONS"
+        :exception-options="EXCEPTION_OPTIONS"
+        :list-state="orderListState"
+        :highlight-order-id="highlightOrderId"
+        @search="handleSearch"
+        @reset="handleReset"
+        @reload="loadOrders"
+        @view-order="handleViewOrder"
+        @order-no-click="handleOrderNoClick"
+        @contact="handleContact"
+      />
 
-          <el-form-item label="订单状态">
-            <el-select v-model="orderFilters.status" class="orders-filter__select">
-              <el-option
-                v-for="item in STATUS_OPTIONS"
-                :key="item.value || 'all-status'"
-                :label="item.label"
-                :value="item.value"
-              />
-            </el-select>
-          </el-form-item>
+      <RefundAuditTab
+        v-else-if="activeTab === REFUND_TAB"
+        :filters="refundFilters"
+        :status-options="REFUND_STATUS_OPTIONS"
+        :list-state="refundListState"
+        :audit-loading="auditLoading"
+        @search="handleSearch"
+        @reset="handleReset"
+        @reload="loadRefunds"
+        @view-refund="handleViewRefund"
+        @approve="handleApproveRefund"
+        @reject="handleRejectRefund"
+      />
 
-          <el-form-item label="异常筛选">
-            <el-select v-model="orderFilters.exception_type" class="orders-filter__select">
-              <el-option
-                v-for="item in EXCEPTION_OPTIONS"
-                :key="item.value || 'all-exception'"
-                :label="item.label"
-                :value="item.value"
-              />
-            </el-select>
-          </el-form-item>
+      <TimeoutPlaceholderTab
+        v-else-if="activeTab === TIMEOUT_TAB"
+        :filters="timeoutFilters"
+        :status-options="TIMEOUT_STATUS_OPTIONS"
+        @search="handleSearch"
+        @reset="handleReset"
+      />
 
-          <el-form-item label="时间范围">
-            <el-date-picker
-              v-model="orderFilters.time_range"
-              type="datetimerange"
-              range-separator="至"
-              start-placeholder="开始时间"
-              end-placeholder="结束时间"
-              value-format="YYYY-MM-DD HH:mm:ss"
-              class="orders-filter__range"
-            />
-          </el-form-item>
-
-          <el-form-item label="订单号/联系人">
-            <el-input
-              v-model="orderFilters.keyword"
-              placeholder="可搜订单号、联系人、手机号（点击列表订单号可一键搜索）"
-              clearable
-              class="orders-filter__input orders-filter__input--wide"
-              @keyup.enter="handleSearch"
-            />
-          </el-form-item>
-
-          <el-form-item label="商家名称">
-            <el-input
-              v-model="orderFilters.merchant_name"
-              placeholder="请输入商家名称"
-              clearable
-              class="orders-filter__input"
-              @keyup.enter="handleSearch"
-            />
-          </el-form-item>
-
-          <el-form-item label="乡镇名称">
-            <el-input
-              v-model="orderFilters.town_name"
-              placeholder="请输入乡镇名称"
-              clearable
-              class="orders-filter__input"
-              @keyup.enter="handleSearch"
-            />
-          </el-form-item>
-
-          <el-form-item>
-            <el-button type="primary" @click="handleSearch">查询</el-button>
-            <el-button @click="handleReset">重置</el-button>
-          </el-form-item>
-        </el-form>
-
-        <el-alert
-          v-if="orderListState.error"
-          :title="orderListState.error"
-          type="error"
-          show-icon
-          :closable="false"
-          class="orders-alert"
-        >
-          <template #default>
-            <el-button type="danger" link @click="loadOrders">重新加载</el-button>
-          </template>
-        </el-alert>
-
-        <el-table
-          v-loading="orderListState.loading"
-          :data="orderTableData"
-          border
-          size="small"
-          class="orders-table admin-table--compact"
-          empty-text="暂无订单数据"
-          :row-class-name="getOrderRowClassName"
-        >
-          <el-table-column label="业务" width="72" align="center">
-            <template #default="{ row }">
-              <el-tag :type="getBusinessTagType(row.business_label)" effect="dark" size="small">
-                {{ row.business_label === '县城外卖' ? '县城' : row.business_label === '乡镇外卖' ? '乡镇' : row.business_label }}
-              </el-tag>
-            </template>
-          </el-table-column>
-
-          <el-table-column label="订单号" width="168">
-            <template #default="{ row }">
-              <button type="button" class="orders-order-no admin-table__order-no" @click="handleOrderNoClick(row)">
-                {{ formatOrderNoDisplay(row.order_no) || row.order_no || '--' }}
-              </button>
-            </template>
-          </el-table-column>
-
-          <el-table-column label="商家" min-width="100" show-overflow-tooltip>
-            <template #default="{ row }">
-              {{ row.merchant_name }}
-            </template>
-          </el-table-column>
-
-          <el-table-column label="用户" min-width="108" show-overflow-tooltip>
-            <template #default="{ row }">
-              <div class="admin-table__stack">
-                <div class="admin-table__main">{{ row.user_name }}</div>
-                <div class="admin-table__sub">{{ row.user_phone || '--' }}</div>
-              </div>
-            </template>
-          </el-table-column>
-
-          <el-table-column label="乡镇" min-width="80" show-overflow-tooltip>
-            <template #default="{ row }">
-              {{ row.town_name || row.area_name || '--' }}
-            </template>
-          </el-table-column>
-
-          <el-table-column label="状态" min-width="108">
-            <template #default="{ row }">
-              <div class="admin-table__inline">
-                <el-tag :type="getOrderStatusTagType(row.status_label)" size="small">{{ row.status_label }}</el-tag>
-                <span v-if="formatWaitMinutes(row.wait_minutes) !== '--'" class="admin-table__sub">
-                  {{ formatWaitMinutes(row.wait_minutes) }}
-                </span>
-              </div>
-              <div v-if="resolveExceptionTags(row).length" class="admin-table__warn">
-                {{ resolveExceptionTags(row)[0] }}
-              </div>
-            </template>
-          </el-table-column>
-
-          <el-table-column label="下单/金额" width="108">
-            <template #default="{ row }">
-              <div class="admin-table__stack">
-                <div class="admin-table__main">{{ formatCompactTime(row.created_at) }}</div>
-                <div class="admin-table__sub">¥ {{ row.amount }}</div>
-              </div>
-            </template>
-          </el-table-column>
-
-          <el-table-column label="操作" width="92" align="center">
-            <template #default="{ row }">
-              <div class="admin-actions--compact">
-                <el-button link type="primary" size="small" @click="handleViewOrder(row)">详情</el-button>
-                <el-dropdown trigger="click" @command="(type) => handleContact(type, row)">
-                  <el-button link size="small">联系</el-button>
-                  <template #dropdown>
-                    <el-dropdown-menu>
-                      <el-dropdown-item command="merchant">联系商家</el-dropdown-item>
-                      <el-dropdown-item command="rider">联系骑手</el-dropdown-item>
-                      <el-dropdown-item command="user">联系用户</el-dropdown-item>
-                    </el-dropdown-menu>
-                  </template>
-                </el-dropdown>
-              </div>
-            </template>
-          </el-table-column>
-        </el-table>
-      </template>
-
-      <template v-else>
-        <el-form :inline="true" class="orders-filters" @submit.prevent>
-          <el-form-item label="退款状态">
-            <el-select v-model="refundFilters.status" class="orders-filter__select">
-              <el-option
-                v-for="item in REFUND_STATUS_OPTIONS"
-                :key="item.value"
-                :label="item.label"
-                :value="item.value"
-              />
-            </el-select>
-          </el-form-item>
-
-          <el-form-item>
-            <el-button type="primary" @click="handleSearch">查询</el-button>
-            <el-button @click="handleReset">重置</el-button>
-          </el-form-item>
-        </el-form>
-
-        <el-alert
-          v-if="refundListState.error"
-          :title="refundListState.error"
-          type="error"
-          show-icon
-          :closable="false"
-          class="orders-alert"
-        >
-          <template #default>
-            <el-button type="danger" link @click="loadRefunds">重新加载</el-button>
-          </template>
-        </el-alert>
-
-        <el-table
-          v-loading="refundListState.loading"
-          :data="refundTableData"
-          border
-          size="small"
-          class="orders-table admin-table--compact"
-          empty-text="暂无退款数据"
-          :row-class-name="getRefundRowClassName"
-        >
-          <el-table-column label="订单号" width="168">
-            <template #default="{ row }">
-              <div class="admin-table__order-no admin-table__main">
-                {{ formatOrderNoDisplay(row.order_no) || row.order_no || '--' }}
-              </div>
-              <div class="admin-table__sub">{{ row.refund_no || '--' }}</div>
-            </template>
-          </el-table-column>
-
-          <el-table-column label="用户" width="108" show-overflow-tooltip>
-            <template #default="{ row }">
-              <div class="admin-table__main">{{ row.buyer_name }}</div>
-              <div class="admin-table__sub">{{ row.buyer_phone || '--' }}</div>
-            </template>
-          </el-table-column>
-
-          <el-table-column label="商家" min-width="88" show-overflow-tooltip>
-            <template #default="{ row }">
-              <div class="admin-table__main">{{ row.merchant_name }}</div>
-              <div class="admin-table__sub">{{ row.customer_town || row.merchant_town_name || '--' }}</div>
-            </template>
-          </el-table-column>
-
-          <el-table-column label="来源/处理" width="108">
-            <template #default="{ row }">
-              <el-tag type="warning" size="small">{{ getApplySourceLabel(row.apply_source) }}</el-tag>
-              <div class="admin-table__sub">{{ getRefundAuditChannelLabel(row) }}</div>
-            </template>
-          </el-table-column>
-
-          <el-table-column label="退款/实付" width="88">
-            <template #default="{ row }">
-              <div class="admin-table__main">¥ {{ row.amount }}</div>
-              <div class="admin-table__sub">实付 ¥ {{ row.pay_amount }}</div>
-            </template>
-          </el-table-column>
-
-          <el-table-column label="状态/原因" min-width="120" show-overflow-tooltip>
-            <template #default="{ row }">
-              <el-tag :type="getRefundStatusTagType(row.status)" size="small">{{ row.status_label }}</el-tag>
-              <div class="admin-table__sub">{{ row.description || row.reject_reason || '--' }}</div>
-            </template>
-          </el-table-column>
-
-          <el-table-column label="操作" width="92" align="center">
-            <template #default="{ row }">
-              <div class="admin-actions--compact">
-                <el-button link type="primary" size="small" @click="handleViewRefund(row)">详情</el-button>
-                <el-dropdown
-                  v-if="Number(row.status) === 0 && canAdminArbitrateRefund(row)"
-                  trigger="click"
-                  @command="(action) => (action === 'approve' ? handleApproveRefund(row) : handleRejectRefund(row))"
-                >
-                  <el-button link type="primary" size="small" :loading="auditLoading">审核</el-button>
-                  <template #dropdown>
-                    <el-dropdown-menu>
-                      <el-dropdown-item command="approve">通过退款</el-dropdown-item>
-                      <el-dropdown-item command="reject">驳回退款</el-dropdown-item>
-                    </el-dropdown-menu>
-                  </template>
-                </el-dropdown>
-              </div>
-            </template>
-          </el-table-column>
-        </el-table>
-      </template>
-
-      <div class="orders-pagination">
+      <div v-if="activeTab !== TIMEOUT_TAB" class="orders-pagination">
         <el-pagination
           background
           layout="total, sizes, prev, pager, next, jumper"
@@ -1327,6 +1092,39 @@ watch(
             </div>
           </div>
 
+          <div v-if="orderItems.length" class="orders-detail__section">
+            <div class="orders-detail__title">商品明细</div>
+            <div class="orders-detail__goods-list">
+              <div
+                v-for="(item, index) in orderItems"
+                :key="`${item.product_id || item.name || 'item'}-${index}`"
+                class="orders-detail__goods-item"
+              >
+                <el-image
+                  class="orders-detail__goods-image"
+                  :src="resolveOrderItemImage(item)"
+                  fit="cover"
+                  :preview-src-list="resolveOrderItemImage(item) ? [resolveOrderItemImage(item)] : []"
+                  preview-teleported
+                >
+                  <template #error>
+                    <div class="orders-detail__goods-image-fallback">暂无图片</div>
+                  </template>
+                </el-image>
+
+                <div class="orders-detail__goods-meta">
+                  <div class="orders-detail__goods-name">{{ item.name || '未知商品' }}</div>
+                  <div v-if="item.spec_text" class="orders-detail__goods-spec">规格：{{ item.spec_text }}</div>
+                  <div v-if="item.description" class="orders-detail__goods-desc">{{ item.description }}</div>
+                  <div class="orders-detail__goods-price">
+                    <span>单价 ¥{{ item.unit_price || '0.00' }} × {{ item.quantity || 0 }}</span>
+                    <span class="orders-detail__goods-subtotal">小计 ¥{{ item.line_amount || '0.00' }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div v-for="section in detailSections" :key="section.key" class="orders-detail__section">
             <div class="orders-detail__title">{{ section.title }}</div>
 
@@ -1337,6 +1135,15 @@ watch(
                 <span class="detail-display__text">{{ item.value }}</span>
               </el-descriptions-item>
             </el-descriptions>
+
+            <div
+              v-if="section.key === 'merchant' && detailData.merchant?.phone"
+              class="orders-detail__merchant-actions"
+            >
+              <el-button type="primary" @click="handleContact('merchant', { merchant_phone: detailData.merchant.phone })">
+                拨打商家 {{ detailData.merchant.phone }}
+              </el-button>
+            </div>
 
             <el-timeline v-else class="orders-detail__timeline">
               <el-timeline-item
@@ -1537,6 +1344,79 @@ watch(
   margin-top: 12px;
   display: flex;
   gap: 12px;
+}
+
+.orders-detail__goods-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.orders-detail__goods-item {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #ebeef5;
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.orders-detail__goods-image {
+  width: 72px;
+  height: 72px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #f2f3f5;
+}
+
+.orders-detail__goods-image-fallback {
+  width: 72px;
+  height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: #909399;
+  background: #f2f3f5;
+}
+
+.orders-detail__goods-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.orders-detail__goods-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #303133;
+  line-height: 1.5;
+}
+
+.orders-detail__goods-spec,
+.orders-detail__goods-desc {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.5;
+}
+
+.orders-detail__goods-price {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: #606266;
+}
+
+.orders-detail__goods-subtotal {
+  font-weight: 600;
+  color: #f56c6c;
+}
+
+.orders-detail__merchant-actions {
+  margin-top: 12px;
 }
 
 .orders-detail__section + .orders-detail__section {

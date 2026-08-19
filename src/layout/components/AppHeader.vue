@@ -33,6 +33,7 @@ const breadcrumbItems = computed(() => {
 })
 const adminName = computed(() => authStore.adminName || '管理员')
 const roleName = computed(() => authStore.roleName || '未设置角色')
+const adminInitial = computed(() => (adminName.value || '管').slice(0, 1).toUpperCase())
 const voiceButtonLabel = computed(() => (props.audioUnlocked ? '语音已开启' : '开启语音'))
 const voiceButtonType = computed(() => (props.audioUnlocked ? 'success' : 'warning'))
 
@@ -62,6 +63,7 @@ function handleUnlockAudio() {
 
     <div class="app-header__actions">
       <el-button
+        class="app-header__voice-btn"
         :type="voiceButtonType"
         plain
         :loading="unlockingAudio"
@@ -76,8 +78,11 @@ function handleUnlockAudio() {
 
       <el-dropdown @command="handleCommand">
         <div class="app-header__admin">
-          <div class="app-header__admin-name">{{ adminName }}</div>
-          <div class="app-header__admin-role">{{ roleName }}</div>
+          <div class="app-header__avatar">{{ adminInitial }}</div>
+          <div class="app-header__admin-info">
+            <div class="app-header__admin-name">{{ adminName }}</div>
+            <div class="app-header__admin-role">{{ roleName }}</div>
+          </div>
         </div>
         <template #dropdown>
           <el-dropdown-menu>

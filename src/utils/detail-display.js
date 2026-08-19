@@ -146,6 +146,8 @@ export const ORDER_DETAIL_HIDDEN = new Set([
   'refunds',
   'logs',
   'business_badge',
+  'order_items',
+  'delivery_address_display',
 ])
 
 export const MERCHANT_DETAIL_FIELD_ORDER = [
@@ -299,44 +301,36 @@ export const ORDER_STATUS_LABEL_MAP = {
   1: '待接单',
   2: '备餐中',
   3: '待配送',
-  4: '骑手已接单',
+  4: '待取餐',
   5: '配送中',
+  8: '已送达待确认',
   6: '已完成',
   7: '已取消',
 }
 
-export const REFUND_STATUS_LABEL_MAP = {
-  0: '待后台审核',
-  1: '审核通过，退款处理中',
-  2: '退款成功',
-  3: '后台已驳回',
-  4: '用户已撤销申请',
-}
-
-export function getOrderStatusLabel(status) {
-  if (status === null || status === undefined || status === '') {
+/**
+ * 订单状态展示文案：优先读接口 status_text（规则单真源），缺字段再回落本地 map。
+ * @param {number|string|object} statusOrRecord - 状态码，或含 status/status_text 的对象
+ */
+export function getOrderStatusLabel(statusOrRecord) {
+  if (statusOrRecord === null || statusOrRecord === undefined || statusOrRecord === '') {
     return '--'
   }
 
-  const numericStatus = Number(status)
+  if (typeof statusOrRecord === 'object' && !Array.isArray(statusOrRecord)) {
+    const fromBackend = statusOrRecord.status_text || statusOrRecord.statusText
+    if (fromBackend) {
+      return String(fromBackend)
+    }
+    return getOrderStatusLabel(statusOrRecord.status)
+  }
+
+  const numericStatus = Number(statusOrRecord)
   if (Number.isFinite(numericStatus) && ORDER_STATUS_LABEL_MAP[numericStatus]) {
     return ORDER_STATUS_LABEL_MAP[numericStatus]
   }
 
-  return String(status)
-}
-
-export function getRefundStatusLabel(status) {
-  if (status === null || status === undefined || status === '') {
-    return '--'
-  }
-
-  const numericStatus = Number(status)
-  if (Number.isFinite(numericStatus) && REFUND_STATUS_LABEL_MAP[numericStatus]) {
-    return REFUND_STATUS_LABEL_MAP[numericStatus]
-  }
-
-  return String(status)
+  return String(statusOrRecord)
 }
 
 export function getIdentityTypeLabel(type) {

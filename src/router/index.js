@@ -27,6 +27,8 @@ const routes = [
       { path: 'reviews', name: 'Reviews', component: () => import('../views/reviews/index.vue'), meta: { title: '审核中心' } },
       { path: 'dispatch', name: 'Dispatch', component: () => import('../views/dispatch/index.vue'), meta: { title: '调度总览' } },
       { path: 'operations', name: 'Operations', component: () => import('../views/operations/index.vue'), meta: { title: '运营配置' } },
+      { path: 'notify-delivery', name: 'NotifyDelivery', component: () => import('../views/notify-delivery/index.vue'), meta: { title: '语音提醒监控' } },
+      { path: 'franchise-brands', name: 'FranchiseBrands', component: () => import('../views/franchise-brands/index.vue'), meta: { title: '加盟品牌' } },
       { path: 'messages', redirect: '/messages/system-notifications' },
       {
         path: 'messages/system-notifications',

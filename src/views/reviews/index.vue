@@ -15,6 +15,7 @@ import {
   rejectMerchant,
   rejectRider,
 } from '../../api/review'
+import OrderReviewTab from './OrderReviewTab.vue'
 import { getBackendOrigin } from '../../utils/backend-origin'
 import {
   buildDetailEntry,
@@ -95,6 +96,7 @@ function resolveList(payload) {
 }
 
 function normalizeReviewTab(value) {
+  if (value === 'order-review') return 'order-review'
   return value === 'rider' ? 'rider' : 'merchant'
 }
 
@@ -339,8 +341,12 @@ onMounted(() => {
       <el-tabs v-model="activeTab" @tab-change="handleTabChange">
         <el-tab-pane label="商家审核" name="merchant" />
         <el-tab-pane label="骑手审核" name="rider" />
+        <el-tab-pane label="评价审核" name="order-review" />
       </el-tabs>
 
+      <OrderReviewTab v-if="activeTab === 'order-review'" />
+
+      <template v-else>
       <div v-if="activeTab === 'merchant'" class="review-page__toolbar">
         <el-radio-group v-model="merchantState.status" @change="handleMerchantStatusChange">
           <el-radio-button value="pending">待审核</el-radio-button>
@@ -462,6 +468,7 @@ onMounted(() => {
           @current-change="handleRiderPageChange"
         />
       </div>
+      </template>
     </el-card>
 
     <el-drawer v-model="detailVisible" :title="detailTitle" size="520px">
