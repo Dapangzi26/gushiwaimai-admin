@@ -230,6 +230,17 @@ function getOrderRowClassName({ row }) {
       </template>
     </el-table-column>
 
+    <el-table-column label="利润(应得/平台)" width="128" align="right">
+      <template #default="{ row }">
+        <!-- 每单利润列（D-P22）：商家应得（已扣通道费）+ 平台收入；镇上单平台常为 0，
+             商品 15% 计入骑手所得（D-P30），故并列骑手所得，避免误以为没抽成。 -->
+        <div class="admin-table__stack">
+          <div class="admin-table__main">商家 ¥{{ row.merchant_income_amount ?? '--' }}</div>
+          <div class="admin-table__sub">平台 ¥{{ row.platform_income_amount ?? '--' }} / 骑手 ¥{{ row.rider_fee ?? '--' }}</div>
+        </div>
+      </template>
+    </el-table-column>
+
     <el-table-column label="操作" width="92" align="center">
       <template #default="{ row }">
         <div class="admin-actions--compact">

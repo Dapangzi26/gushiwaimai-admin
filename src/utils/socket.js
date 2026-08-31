@@ -4,9 +4,11 @@
  */
 import { io } from 'socket.io-client'
 import { getStoredAuth } from './auth'
+import { bindDualAdminSocketEvent } from './socket-dual-bind.js'
 
 let socketInstance = null
 let reminderHandler = null
+let unbindReminderDual = null
 
 function resolveSocketBaseUrl() {
   const explicit = String(import.meta.env.VITE_BACKEND_ORIGIN || '').trim()
@@ -48,9 +50,18 @@ export function connectAdminSocket(onReminder) {
     timeout: 15000,
   })
 
-  socketInstance.on('admin_merchant_accept_pending_alert', (payload) => {
-    reminderHandler?.(payload)
-  })
+  if (unbindReminderDual) {
+    unbindReminderDual()
+    unbindReminderDual = null
+  }
+
+  unbindReminderDual = bindDualAdminSocketEvent(
+    socketInstance,
+    'admin_merchant_accept_pending_alert',
+    (payload) => {
+      reminderHandler?.(payload)
+    }
+  )
 
   socketInstance.on('connect_error', (error) => {
     console.warn('[admin-socket] connect_error:', error?.message || error)
@@ -60,8 +71,11 @@ export function connectAdminSocket(onReminder) {
 }
 
 export function disconnectAdminSocket() {
+  if (unbindReminderDual) {
+    unbindReminderDual()
+    unbindReminderDual = null
+  }
   if (socketInstance) {
-    socketInstance.off('admin_merchant_accept_pending_alert')
     socketInstance.disconnect()
     socketInstance = null
   }

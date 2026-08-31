@@ -37,10 +37,10 @@
   border-radius: 10px;
 }
 
-/* ── 核心三格（一眼看清） ── */
+/* ── 核心四格（一眼看清） ── */
 .workbench-spotlight {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 20px;
 }
@@ -95,6 +95,14 @@
   --spot-icon-bg: rgba(225, 29, 72, 0.12);
 }
 
+.workbench-spotlight__cell--amber {
+  --spot-accent: #d97706;
+  --spot-border: #fde68a;
+  --spot-bg: linear-gradient(180deg, #fffbeb 0%, #ffffff 55%);
+  --spot-value: #b45309;
+  --spot-icon-bg: rgba(217, 119, 6, 0.12);
+}
+
 .workbench-spotlight__icon {
   width: 44px;
   height: 44px;
@@ -116,13 +124,18 @@
 
 .workbench-spotlight__value {
   margin-top: 8px;
-  font-size: 56px;
+  font-size: 44px;
   font-weight: 800;
   line-height: 1;
   letter-spacing: -0.04em;
   font-variant-numeric: tabular-nums;
   color: var(--spot-value, #0f172a);
-  min-height: 58px;
+  min-height: 48px;
+}
+
+.workbench-spotlight__value.is-money {
+  font-size: 28px;
+  letter-spacing: -0.02em;
 }
 
 .workbench-spotlight__value.is-loading {
@@ -245,13 +258,23 @@
   color: #cbd5e1;
 }
 
+@media (max-width: 1440px) {
+  .workbench-spotlight {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 1280px) {
   .workbench-spotlight {
     grid-template-columns: 1fr;
   }
 
   .workbench-spotlight__value {
-    font-size: 48px;
+    font-size: 40px;
+  }
+
+  .workbench-spotlight__value.is-money {
+    font-size: 28px;
   }
 
   .workbench-mosaic__grid {

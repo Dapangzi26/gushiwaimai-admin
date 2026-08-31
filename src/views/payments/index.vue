@@ -25,7 +25,7 @@
         :closable="false"
         class="page-shell__alert"
         title="数据来源说明"
-        description="点击列表「详情」可查看订单分账明细；数据来自已完成订单列表。"
+        description="筛选合计按当前筛选全量加总，不是本页。镇上平台利润常为 0（商品 15% 计入骑手所得）。「导出 csv」下载当前筛选全量对账文件（订单号、入账日、实付、商家应得、平台、骑手）。点击列表「详情」可查看单笔分账。"
       />
 
       <div class="payment-stats">
@@ -56,6 +56,17 @@
             <el-option label="县城外卖" value="county_takeout" />
             <el-option label="乡镇外卖" value="town_takeout" />
           </el-select>
+          <el-date-picker
+            v-model="settledRange"
+            type="daterange"
+            value-format="YYYY-MM-DD"
+            range-separator="至"
+            start-placeholder="入账起"
+            end-placeholder="入账止"
+            clearable
+            style="width: 260px"
+            @change="handleFilterChange"
+          />
           <el-input
             v-model="filters.merchantName"
             placeholder="商家名称"
@@ -65,6 +76,7 @@
             @clear="handleFilterChange"
           />
           <el-button type="primary" :loading="loading" @click="handleFilterChange">查询</el-button>
+          <el-button :loading="exporting" @click="handleExport">导出 csv</el-button>
           <el-button @click="handleReset">重置</el-button>
         </div>
 
@@ -87,6 +99,19 @@
               <span class="admin-table__order-no">
                 {{ formatOrderNoDisplay(row.order_no) || row.order_no || '--' }}
               </span>
+              <!-- S-07 拼单账单口径（D-P43）：按子单列，标主店/子店；主店行提示取餐费只挂主店 + 退单运费不重算 -->
+              <div v-if="row.is_group_order" class="payment-group-tags">
+                <el-tag :type="row.is_group_main ? 'warning' : 'info'" size="small" effect="plain">
+                  {{ row.is_group_main ? '拼单·主店' : '拼单·子店' }}
+                </el-tag>
+                <span v-if="row.group_no" class="payment-group-no">组 {{ row.group_no }}</span>
+              </div>
+              <div v-if="row.is_group_order && row.is_group_main" class="payment-group-note">
+                取餐费 ¥{{ formatMoney(row.pickup_fee) }}（含全单，仅主店计）
+              </div>
+              <div v-if="row.is_group_order && row.is_group_main && row.group_has_refund" class="payment-group-note">
+                拼单运费不因退单重算（取餐费已按份退）
+              </div>
             </template>
           </el-table-column>
           <el-table-column label="业务" width="72" align="center">
@@ -99,8 +124,26 @@
           </el-table-column>
           <el-table-column label="实付/完成" width="102" align="right">
             <template #default="{ row }">
-              <div class="admin-table__main payment-amount">¥ {{ formatMoney(row.pay_amount ?? row.total_amount) }}</div>
+              <div class="admin-table__main payment-amount">¥ {{ formatMoney(row.pay_amount) }}</div>
               <div class="admin-table__sub">{{ formatCompactTime(row.delivered_at || row.settled_at) }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="商家应得" width="92" align="right">
+            <template #default="{ row }">
+              <div class="admin-table__main payment-amount">¥ {{ formatMoney(row.merchant_income_amount) }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="平台/骑手" width="112" align="right">
+            <template #default="{ row }">
+              <!-- 镇上单商品 15% 计入骑手所得、平台收入常为 0（D-P30），故平台与骑手并列展示 -->
+              <div class="admin-table__main payment-amount">平台 ¥{{ formatMoney(row.platform_income_amount) }}</div>
+              <div class="admin-table__sub">骑手 ¥{{ formatMoney(row.rider_fee) }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="入账时间" width="102" align="right">
+            <template #default="{ row }">
+              <span v-if="row.settled_at">{{ formatCompactTime(row.settled_at) }}</span>
+              <el-tag v-else type="warning" size="small">未入账</el-tag>
             </template>
           </el-table-column>
           <el-table-column label="操作" width="80" align="center">
@@ -168,8 +211,17 @@
               <div class="admin-table__sub">{{ row.bank_card_plain || row.bank_card_masked || '--' }}</div>
             </template>
           </el-table-column>
+          <el-table-column label="变动前" width="88">
+            <template #default="{ row }">¥ {{ formatMoney(row.balance_before) }}</template>
+          </el-table-column>
+          <el-table-column label="变动后" width="88">
+            <template #default="{ row }">¥ {{ formatMoney(row.balance_after) }}</template>
+          </el-table-column>
           <el-table-column label="申请时间" width="102">
             <template #default="{ row }">{{ formatCompactTime(row.applied_at) }}</template>
+          </el-table-column>
+          <el-table-column label="处理时间" width="102">
+            <template #default="{ row }">{{ formatCompactTime(row.processed_at) }}</template>
           </el-table-column>
           <el-table-column label="操作" width="92" align="center">
             <template #default="{ row }">
@@ -226,7 +278,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { fetchAdminOrderDetail, fetchAdminOrders } from '../../api/orders'
+import { exportAdminOrdersCsv, fetchAdminOrderDetail, fetchAdminOrders } from '../../api/orders'
 import {
   approveMerchantWithdrawal,
   approveRiderWithdrawal,
@@ -246,6 +298,7 @@ const route = useRoute()
 const DEFAULT_PAGE_SIZE = 10
 const activeTab = ref('settlement')
 const loading = ref(false)
+const exporting = ref(false)
 const loadError = ref('')
 const list = ref([])
 const filters = reactive({
@@ -253,6 +306,9 @@ const filters = reactive({
   merchantName: '',
 })
 const businessType = ref('')
+// 入账日（settled_at）范围筛选（D-P01 / D-P23）：走后端新参数 settled_start/settled_end，
+// 与订单中心按下单日 created_at 的筛选互不影响。
+const settledRange = ref([])
 const pagination = reactive({ page: 1, pageSize: DEFAULT_PAGE_SIZE, total: 0 })
 
 const withdrawRole = ref('merchant')
@@ -268,11 +324,22 @@ const detailLoading = ref(false)
 const detailError = ref('')
 const detailData = ref(null)
 
+const listSums = ref(null)
+
 const summaryCards = computed(() => {
-  const sumPay = list.value.reduce((acc, row) => acc + parseMoney(row.pay_amount ?? row.total_amount), 0).toFixed(2)
+  const hasMissingPay = list.value.some(
+    (row) => row.pay_amount === null || row.pay_amount === undefined || row.pay_amount === ''
+  )
+  const sumPay = hasMissingPay
+    ? '--'
+    : list.value.reduce((acc, row) => acc + parseMoney(row.pay_amount), 0).toFixed(2)
   const pendingCount = pendingWithdrawCount.value
+  const sums = listSums.value || {}
 
   return [
+    { key: 'sum_merchant', label: '筛选合计·商家应得', value: formatMoney(sums.sum_merchant_income), format: 'money' },
+    { key: 'sum_platform', label: '筛选合计·平台利润', value: formatMoney(sums.sum_platform_income), format: 'money' },
+    { key: 'sum_rider', label: '筛选合计·骑手所得', value: formatMoney(sums.sum_rider_fee), format: 'money' },
     { key: 'pay', label: '本页实付合计', value: sumPay, format: 'money' },
     { key: 'count', label: '本页订单数', value: String(list.value.length), format: 'count', unit: '笔' },
     {
@@ -323,37 +390,62 @@ function withdrawStatusTag(status) {
   return map[status] || 'info'
 }
 
+function buildSettlementQueryParams({ withPagination = true } = {}) {
+  const params = {
+    status: '6',
+    business_type: businessType.value || undefined,
+  }
+
+  if (withPagination) {
+    params.page = pagination.page
+    params.limit = pagination.pageSize
+  }
+
+  const orderKeyword = normalizeSearchKeyword(filters.orderNo)
+  if (orderKeyword) {
+    params.keyword = orderKeyword
+  }
+
+  const merchantName = filters.merchantName.trim()
+  if (merchantName) {
+    params.merchant_name = merchantName
+  }
+
+  if (Array.isArray(settledRange.value) && settledRange.value.length === 2) {
+    params.settled_start = settledRange.value[0]
+    params.settled_end = settledRange.value[1]
+  }
+
+  return params
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
+
 async function loadList() {
   loading.value = true
   loadError.value = ''
 
   try {
-    const params = {
-      status: '6',
-      business_type: businessType.value || undefined,
-      page: pagination.page,
-      limit: pagination.pageSize,
-    }
-
-    const orderKeyword = normalizeSearchKeyword(filters.orderNo)
-    if (orderKeyword) {
-      params.keyword = orderKeyword
-    }
-
-    const merchantName = filters.merchantName.trim()
-    if (merchantName) {
-      params.merchant_name = merchantName
-    }
-
-    const result = await fetchAdminOrders(params)
+    const result = await fetchAdminOrders(buildSettlementQueryParams())
 
     const items = Array.isArray(result?.list) ? result.list : []
     list.value = items
     pagination.total = result?.pagination?.total ?? result?.total ?? 0
+    listSums.value = result?.sums || null
   } catch (error) {
     loadError.value = getRequestErrorMessage(error, '结算数据加载失败')
     list.value = []
     pagination.total = 0
+    listSums.value = null
   } finally {
     loading.value = false
   }
@@ -393,8 +485,25 @@ function handleReset() {
   filters.orderNo = ''
   filters.merchantName = ''
   businessType.value = ''
+  settledRange.value = []
   pagination.page = 1
   loadList()
+}
+
+async function handleExport() {
+  exporting.value = true
+  try {
+    const blob = await exportAdminOrdersCsv(buildSettlementQueryParams({ withPagination: false }))
+    const range = Array.isArray(settledRange.value) && settledRange.value.length === 2
+      ? `_${settledRange.value[0]}_${settledRange.value[1]}`
+      : ''
+    downloadBlob(blob, `分账明细${range}.csv`)
+    ElMessage.success('已开始下载 csv')
+  } catch (error) {
+    ElMessage.error(getRequestErrorMessage(error, error?.message || '导出失败'))
+  } finally {
+    exporting.value = false
+  }
 }
 
 function handlePageChange(page) {
@@ -549,7 +658,7 @@ watch(activeTab, (tab) => {
 
 .payment-stats {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
   gap: 16px;
   margin-bottom: 16px;
 }
@@ -580,6 +689,25 @@ watch(activeTab, (tab) => {
 
 .payment-amount {
   text-align: right;
+}
+
+.payment-group-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.payment-group-no {
+  font-size: 12px;
+  color: #909399;
+}
+
+.payment-group-note {
+  margin-top: 2px;
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.4;
 }
 
 .payment-toolbar {

@@ -4,7 +4,7 @@
 // 1. 用户取消订单后，进入后台人工审核的“取消申请”
 // 2. 用户申请售后退款后，进入平台处理的“售后退款 / 平台介入”
 // 这样你在总后台里就不用再分散到别的页面找处理入口了。
-import { computed, reactive, ref, watch, nextTick } from 'vue'
+import { reactive, ref, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -14,20 +14,13 @@ import {
   fetchAdminOrders,
   fetchAdminRefunds,
 } from '../../api/orders'
-import TimeoutPlaceholderTab from './TimeoutPlaceholderTab.vue'
 import RefundAuditTab from './RefundAuditTab.vue'
 import OrderListTab from './OrderListTab.vue'
+// D-1：订单详情抽屉、退款责任弹窗都拆成同目录子组件，父页只做“取数 + 编排”
+import OrderDetailDrawer from './OrderDetailDrawer.vue'
+import RefundApproveDialog from './RefundApproveDialog.vue'
 import { getRequestErrorMessage } from '../../utils/http'
 import { formatOrderNoDisplay, looksLikeOrderNumber, normalizeOrderNoDigits, normalizeSearchKeyword } from '../../utils/orderNo.js'
-import {
-  buildAssetUrl,
-  buildDetailEntries,
-  getApplySourceLabel,
-  getResponsibilityTypeLabel,
-  ORDER_BASE_FIELD_ORDER,
-  ORDER_DETAIL_HIDDEN,
-  ORDER_PARTY_FIELD_ORDER,
-} from '../../utils/detail-display'
 import { getBackendOrigin } from '../../utils/backend-origin'
 
 const route = useRoute()
@@ -36,13 +29,11 @@ const backendOrigin = getBackendOrigin()
 
 const ORDER_TAB = 'orders'
 const REFUND_TAB = 'refunds'
-const TIMEOUT_TAB = 'timeout'
 const DEFAULT_PAGE_SIZE = 10
 
 const TAB_OPTIONS = [
   { label: '订单列表', value: ORDER_TAB },
   { label: '售后退款 / 平台介入', value: REFUND_TAB },
-  { label: '订单超时', value: TIMEOUT_TAB },
 ]
 
 const BUSINESS_OPTIONS = [
@@ -66,6 +57,7 @@ const STATUS_OPTIONS = [
 const EXCEPTION_OPTIONS = [
   { label: '全部', value: '' },
   { label: '待接单预警', value: 'timeout_unaccepted' },
+  { label: '待补账', value: 'settlement_pending' },
 ]
 
 const REFUND_STATUS_OPTIONS = [
@@ -73,13 +65,6 @@ const REFUND_STATUS_OPTIONS = [
   { label: '已通过', value: 'approved' },
   { label: '已驳回', value: 'rejected' },
   { label: '全部', value: 'all' },
-]
-
-const TIMEOUT_STATUS_OPTIONS = [
-  { label: '全部', value: '' },
-  { label: '待提醒', value: 'pending' },
-  { label: '已提醒', value: 'reminded' },
-  { label: '已接单', value: 'accepted' },
 ]
 
 const activeTab = ref(ORDER_TAB)
@@ -123,69 +108,6 @@ const refundPagination = reactive({
   pageSize: DEFAULT_PAGE_SIZE,
 })
 
-const timeoutFilters = reactive(createDefaultTimeoutFilters())
-
-const timeoutPagination = reactive({
-  page: 1,
-  pageSize: DEFAULT_PAGE_SIZE,
-})
-
-// 取消申请仍然走旧链路，这里单独收口，避免和售后退款混在一起误审。
-const pendingCancelRefund = computed(() => {
-  const refund = detailData.value?.latest_cancel_refund
-  if (refund?.apply_source === 'cancel' && Number(refund.status) === 0) {
-    return refund
-  }
-
-  const refunds = Array.isArray(detailData.value?.refunds) ? detailData.value.refunds : []
-  return refunds.find((item) => item?.apply_source === 'cancel' && Number(item.status) === 0) || null
-})
-
-// 售后退款：仅当平台有权仲裁时才在详情里展示操作区。
-const pendingAfterSaleRefund = computed(() => {
-  const refunds = Array.isArray(detailData.value?.refunds) ? detailData.value.refunds : []
-  const pending = refunds.find((item) => item?.apply_source === 'after_sale' && Number(item.status) === 0) || null
-  if (!pending) return null
-  return canAdminArbitrateRefund({
-    ...pending,
-    order_type: pending.order_type || detailData.value?.order_type || '',
-  }) ? pending : null
-})
-
-const waitingExternalAfterSaleRefund = computed(() => {
-  const refunds = Array.isArray(detailData.value?.refunds) ? detailData.value.refunds : []
-  const pending = refunds.find((item) => item?.apply_source === 'after_sale' && Number(item.status) === 0) || null
-  if (!pending || pendingAfterSaleRefund.value) return null
-  return pending
-})
-
-const detailSections = computed(() => {
-  if (!detailData.value) {
-    return []
-  }
-
-  const sections = [
-    { key: 'base', title: '订单基础信息', items: buildDetailEntries(detailData.value, { fieldOrder: ORDER_BASE_FIELD_ORDER, hiddenFields: ORDER_DETAIL_HIDDEN }) },
-    { key: 'merchant', title: '商家信息', items: buildDetailEntries(detailData.value?.merchant, { fieldOrder: ORDER_PARTY_FIELD_ORDER }) },
-    { key: 'buyer', title: '用户信息', items: buildDetailEntries(detailData.value?.buyer, { fieldOrder: ORDER_PARTY_FIELD_ORDER }) },
-    { key: 'rider', title: '骑手信息', items: buildDetailEntries(detailData.value?.rider, { fieldOrder: ORDER_PARTY_FIELD_ORDER }) },
-    { key: 'refund', title: '退款记录', items: Array.isArray(detailData.value?.refunds) ? detailData.value.refunds : [] },
-    { key: 'logs', title: '订单日志', items: Array.isArray(detailData.value?.logs) ? detailData.value.logs : [] },
-  ]
-
-  return sections.filter((section) => section.key === 'base' || section.key === 'refund' || section.key === 'logs' || section.items.length > 0)
-})
-
-const orderItems = computed(() => {
-  const list = detailData.value?.order_items
-  return Array.isArray(list) ? list : []
-})
-
-function resolveOrderItemImage(item) {
-  const raw = item?.image_thumb || item?.image || item?.image_detail || ''
-  return buildAssetUrl(raw, backendOrigin)
-}
-
 function createDefaultOrderFilters() {
   return {
     business_type: '',
@@ -205,18 +127,9 @@ function createDefaultRefundFilters() {
   }
 }
 
-function createDefaultTimeoutFilters() {
-  return {
-    status: '',
-    merchant_name: '',
-    keyword: '',
-  }
-}
-
 function resolveActiveTabFromQuery(query) {
   const tab = getQueryString(query.tab)
   if (tab === REFUND_TAB) return REFUND_TAB
-  if (tab === TIMEOUT_TAB) return TIMEOUT_TAB
   return ORDER_TAB
 }
 
@@ -268,7 +181,13 @@ function normalizeOrderRecord(item) {
     status_label: item?.status_label || '--',
     created_at: item?.created_at || '',
     wait_minutes: item?.wait_minutes,
-    amount: item?.pay_amount || item?.total_amount || '--',
+    amount: item?.pay_amount || '--',
+    // 每单利润列（D-P22）：后端 formatOrderSummary 已补这些字段，订单列表原来只映射 amount=pay_amount。
+    // 镇上单 platform_income_amount 常为 0（商品 15% 计入 rider_fee），展示利润需并列 rider_fee（D-P30）。
+    merchant_income_amount: item?.merchant_income_amount ?? '--',
+    platform_income_amount: item?.platform_income_amount ?? '--',
+    rider_fee: item?.rider_fee ?? '--',
+    settled_at: item?.settled_at || '',
     latest_cancel_refund: item?.latest_cancel_refund || null,
     primary_exception_label: item?.primary_exception_label || '',
     exception_tags: Array.isArray(item?.exception_tags) ? item.exception_tags : [],
@@ -284,7 +203,7 @@ function normalizeRefundRecord(item) {
     order_no: normalizeOrderNoDigits(item?.order_no) || String(item?.order_no || '').trim() || '--',
     amount: item?.amount || '--',
     pay_amount: item?.pay_amount || '--',
-    merchant_income_amount: item?.merchant_income_amount || '--',
+    merchant_income_amount: item?.merchant_income_amount ?? '--',
     status: Number(item?.status),
     status_label: item?.status_label || '--',
     reason_type: item?.reason_type || '--',
@@ -396,16 +315,6 @@ function syncStateFromRoute(query) {
     return
   }
 
-  if (activeTab.value === TIMEOUT_TAB) {
-    timeoutFilters.status = getQueryString(query.timeout_status)
-    timeoutFilters.merchant_name = getQueryString(query.merchant_name)
-    timeoutFilters.keyword = getQueryString(query.keyword)
-    timeoutPagination.page = toPositiveNumber(query.page, 1)
-    timeoutPagination.pageSize = toPositiveNumber(query.limit ?? query.page_size, DEFAULT_PAGE_SIZE)
-    highlightOrderId.value = ''
-    return
-  }
-
   refundFilters.status = getQueryString(query.refund_status) || 'pending'
   refundPagination.page = toPositiveNumber(query.page, 1)
   refundPagination.pageSize = toPositiveNumber(query.limit ?? query.page_size, DEFAULT_PAGE_SIZE)
@@ -420,18 +329,6 @@ function buildCurrentRouteQuery() {
       page: String(refundPagination.page),
       limit: String(refundPagination.pageSize),
     }
-  }
-
-  if (activeTab.value === TIMEOUT_TAB) {
-    const query = {
-      tab: TIMEOUT_TAB,
-      page: String(timeoutPagination.page),
-      limit: String(timeoutPagination.pageSize),
-    }
-    if (timeoutFilters.status) query.timeout_status = timeoutFilters.status
-    if (timeoutFilters.merchant_name.trim()) query.merchant_name = timeoutFilters.merchant_name.trim()
-    if (timeoutFilters.keyword.trim()) query.keyword = timeoutFilters.keyword.trim()
-    return query
   }
 
   const query = {
@@ -516,8 +413,6 @@ async function handleTabChange(tabName) {
 
   if (tabName === REFUND_TAB) {
     refundPagination.page = 1
-  } else if (tabName === TIMEOUT_TAB) {
-    timeoutPagination.page = 1
   } else {
     orderPagination.page = 1
   }
@@ -569,8 +464,6 @@ async function handleOrderNoClick(row) {
 async function handleSearch() {
   if (activeTab.value === REFUND_TAB) {
     refundPagination.page = 1
-  } else if (activeTab.value === TIMEOUT_TAB) {
-    timeoutPagination.page = 1
   } else {
     orderPagination.page = 1
     relaxFiltersForOrderNumberSearch()
@@ -583,10 +476,6 @@ async function handleReset() {
     Object.assign(refundFilters, createDefaultRefundFilters())
     refundPagination.page = 1
     refundPagination.pageSize = DEFAULT_PAGE_SIZE
-  } else if (activeTab.value === TIMEOUT_TAB) {
-    Object.assign(timeoutFilters, createDefaultTimeoutFilters())
-    timeoutPagination.page = 1
-    timeoutPagination.pageSize = DEFAULT_PAGE_SIZE
   } else {
     Object.assign(orderFilters, createDefaultOrderFilters())
     orderPagination.page = 1
@@ -599,8 +488,6 @@ async function handleReset() {
 async function handleCurrentChange(page) {
   if (activeTab.value === REFUND_TAB) {
     refundPagination.page = page
-  } else if (activeTab.value === TIMEOUT_TAB) {
-    timeoutPagination.page = page
   } else {
     orderPagination.page = page
   }
@@ -611,9 +498,6 @@ async function handleSizeChange(size) {
   if (activeTab.value === REFUND_TAB) {
     refundPagination.page = 1
     refundPagination.pageSize = size
-  } else if (activeTab.value === TIMEOUT_TAB) {
-    timeoutPagination.page = 1
-    timeoutPagination.pageSize = size
   } else {
     orderPagination.page = 1
     orderPagination.pageSize = size
@@ -655,9 +539,9 @@ async function handleViewRefund(row) {
   await loadOrderDetail(row.order_id)
 }
 
-async function handleApproveCancel() {
+// refund 由详情抽屉在点“通过取消”时把 pendingCancelRefund 一并 emit 上来
+async function handleApproveCancel(refund) {
   const currentOrderId = detailData.value?.id
-  const refund = pendingCancelRefund.value
   if (!currentOrderId || !refund) {
     ElMessage.warning('当前没有待审核的取消申请')
     return
@@ -694,9 +578,10 @@ async function handleApproveCancel() {
   }
 }
 
-async function handleRejectCancel() {
+// refund 同样来自详情抽屉的 emit；这里只用它判断“确实有待审核的取消申请”
+async function handleRejectCancel(refund) {
   const currentOrderId = detailData.value?.id
-  if (!currentOrderId || !pendingCancelRefund.value) {
+  if (!currentOrderId || !refund) {
     ElMessage.warning('当前没有待审核的取消申请')
     return
   }
@@ -730,8 +615,9 @@ async function handleRejectCancel() {
   }
 }
 
+// targetRow 可能来自退款 Tab 的表格行，也可能来自详情抽屉 emit 的 pendingAfterSaleRefund
 async function handleApproveRefund(targetRow = null) {
-  const row = targetRow || pendingAfterSaleRefund.value
+  const row = targetRow
   const currentOrderId = targetRow?.order_id || detailData.value?.id
   if (!currentOrderId) {
     ElMessage.warning('当前没有待处理的退款申请')
@@ -769,8 +655,9 @@ async function submitRefundApprove() {
   }
 }
 
+// 同 handleApproveRefund：targetRow 来自退款 Tab 表格行或详情抽屉 emit
 async function handleRejectRefund(targetRow = null) {
-  const row = targetRow || pendingAfterSaleRefund.value
+  const row = targetRow
   const currentOrderId = targetRow?.order_id || detailData.value?.id
   if (!currentOrderId) {
     ElMessage.warning('当前没有待处理的退款申请')
@@ -862,50 +749,10 @@ function normalizeQueryObject(query) {
   )
 }
 
-function formatTime(value) {
-  if (!value) {
-    return '--'
-  }
-
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return value
-  }
-
-  return date.toLocaleString('zh-CN', { hour12: false })
-}
-
-function getRefundAuditChannelLabel(refund) {
-  if (!refund) {
-    return '--'
-  }
-
-  if (refund.apply_source !== 'after_sale') {
-    return '后台取消审核'
-  }
-
-  if (refund.audit_role === 'merchant') {
-    return refund.is_merchant_audit_overdue ? '待商家处理（已超时）' : '待商家处理'
-  }
-
-  if (refund.audit_role === 'station') {
-    return '待站长审核'
-  }
-
-  if (refund.is_merchant_escalated || String(refund.audit_note || '').includes('商家超时')) {
-    return '商家超时转平台'
-  }
-
-  if (refund.audit_role === 'admin' && String(refund.audit_note || '').includes('转平台')) {
-    return '站长拒绝后转平台'
-  }
-
-  return '平台直接处理'
-}
-
 /**
  * 平台是否可仲裁该笔售后退款（C3：只读后端 can_admin_arbitrate）。
  * 缺字段时不猜业务规则，默认不可操作，避免与 policy 漂移。
+ * 说明：审核通过/驳回前父页要用它兜底校验，所以留在这里；详情抽屉里另有一份同逻辑用于展示，属既有约定。
  */
 function canAdminArbitrateRefund(row) {
   if (!row || Number(row.status) !== 0) {
@@ -924,31 +771,6 @@ function canAdminArbitrateRefund(row) {
   }
 
   return false
-}
-
-function getRefundAuditBannerTitle(refund) {
-  if (!refund) {
-    return ''
-  }
-
-  return getRefundAuditChannelLabel(refund) === '站长拒绝后转平台'
-    ? '这笔订单的退款申请已转入平台仲裁'
-    : '这笔订单有待处理的售后退款申请'
-}
-
-function getRefundAuditBannerDescription(refund) {
-  if (!refund) {
-    return ''
-  }
-
-  const reason = refund.description || refund.reason_type || '未填写'
-  const baseText = `退款原因：${reason}，退款金额：¥${refund.amount || '--'}`
-
-  if (refund.audit_role === 'admin' && String(refund.audit_note || '').includes('转平台')) {
-    return `${baseText}。站长已拒绝，现由平台最终处理。`
-  }
-
-  return `${baseText}。当前这笔售后退款由平台处理。`
 }
 
 async function scrollToHighlightedOrder() {
@@ -1028,15 +850,7 @@ watch(
         @reject="handleRejectRefund"
       />
 
-      <TimeoutPlaceholderTab
-        v-else-if="activeTab === TIMEOUT_TAB"
-        :filters="timeoutFilters"
-        :status-options="TIMEOUT_STATUS_OPTIONS"
-        @search="handleSearch"
-        @reset="handleReset"
-      />
-
-      <div v-if="activeTab !== TIMEOUT_TAB" class="orders-pagination">
+      <div class="orders-pagination">
         <el-pagination
           background
           layout="total, sizes, prev, pager, next, jumper"
@@ -1050,165 +864,33 @@ watch(
       </div>
     </el-card>
 
-    <el-drawer v-model="detailVisible" title="订单详情" size="680px">
-      <div v-loading="detailLoading">
-        <el-alert v-if="detailError" :title="detailError" type="error" show-icon :closable="false" />
+    <!-- 订单详情抽屉：只展示，用户点的通过/驳回/拨号动作通过事件回传给本页处理 -->
+    <OrderDetailDrawer
+      v-model:visible="detailVisible"
+      :detail-data="detailData"
+      :detail-loading="detailLoading"
+      :detail-error="detailError"
+      :audit-loading="auditLoading"
+      :backend-origin="backendOrigin"
+      @approve-cancel="handleApproveCancel"
+      @reject-cancel="handleRejectCancel"
+      @approve-refund="handleApproveRefund"
+      @reject-refund="handleRejectRefund"
+      @contact="handleContact"
+    />
 
-        <template v-else-if="detailData">
-          <div v-if="pendingCancelRefund" class="orders-detail__audit-bar">
-            <div class="orders-detail__audit-title">这笔订单有待审核的取消申请</div>
-            <div class="orders-detail__audit-desc">
-              用户原因：{{ pendingCancelRefund.description || pendingCancelRefund.reason_type || '未填写' }}
-              ，申请退款：¥{{ pendingCancelRefund.amount || '--' }}
-            </div>
-            <div class="orders-detail__audit-actions">
-              <el-button type="primary" :loading="auditLoading" @click="handleApproveCancel">通过取消</el-button>
-              <el-button type="danger" plain :loading="auditLoading" @click="handleRejectCancel">驳回申请</el-button>
-            </div>
-          </div>
-
-          <div v-if="waitingExternalAfterSaleRefund" class="orders-detail__audit-bar orders-detail__audit-bar--waiting">
-            <div class="orders-detail__audit-title">{{ getRefundAuditChannelLabel(waitingExternalAfterSaleRefund) }}</div>
-            <div class="orders-detail__audit-desc">
-              {{ getRefundAuditBannerDescription(waitingExternalAfterSaleRefund) }}
-            </div>
-            <div class="orders-detail__audit-desc orders-detail__audit-desc--muted">
-              平台需等商家或站长处理完毕（或转交平台）后才能仲裁。
-            </div>
-          </div>
-
-          <div v-if="pendingAfterSaleRefund" class="orders-detail__audit-bar orders-detail__audit-bar--refund">
-            <div class="orders-detail__audit-title">{{ getRefundAuditBannerTitle(pendingAfterSaleRefund) }}</div>
-            <div class="orders-detail__audit-desc">
-              {{ getRefundAuditBannerDescription(pendingAfterSaleRefund) }}
-            </div>
-            <div class="orders-detail__audit-extra">
-              <span>处理来源：{{ getRefundAuditChannelLabel(pendingAfterSaleRefund) }}</span>
-              <span>用户申诉：{{ pendingAfterSaleRefund.responsibility_label || getResponsibilityTypeLabel(pendingAfterSaleRefund.user_claim_direction || pendingAfterSaleRefund.responsibility_type) }}</span>
-            </div>
-            <div class="orders-detail__audit-actions">
-              <el-button type="primary" :loading="auditLoading" @click="handleApproveRefund()">通过退款</el-button>
-              <el-button type="danger" plain :loading="auditLoading" @click="handleRejectRefund()">驳回退款</el-button>
-            </div>
-          </div>
-
-          <div v-if="orderItems.length" class="orders-detail__section">
-            <div class="orders-detail__title">商品明细</div>
-            <div class="orders-detail__goods-list">
-              <div
-                v-for="(item, index) in orderItems"
-                :key="`${item.product_id || item.name || 'item'}-${index}`"
-                class="orders-detail__goods-item"
-              >
-                <el-image
-                  class="orders-detail__goods-image"
-                  :src="resolveOrderItemImage(item)"
-                  fit="cover"
-                  :preview-src-list="resolveOrderItemImage(item) ? [resolveOrderItemImage(item)] : []"
-                  preview-teleported
-                >
-                  <template #error>
-                    <div class="orders-detail__goods-image-fallback">暂无图片</div>
-                  </template>
-                </el-image>
-
-                <div class="orders-detail__goods-meta">
-                  <div class="orders-detail__goods-name">{{ item.name || '未知商品' }}</div>
-                  <div v-if="item.spec_text" class="orders-detail__goods-spec">规格：{{ item.spec_text }}</div>
-                  <div v-if="item.description" class="orders-detail__goods-desc">{{ item.description }}</div>
-                  <div class="orders-detail__goods-price">
-                    <span>单价 ¥{{ item.unit_price || '0.00' }} × {{ item.quantity || 0 }}</span>
-                    <span class="orders-detail__goods-subtotal">小计 ¥{{ item.line_amount || '0.00' }}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div v-for="section in detailSections" :key="section.key" class="orders-detail__section">
-            <div class="orders-detail__title">{{ section.title }}</div>
-
-            <el-empty v-if="!section.items.length" description="暂无数据" :image-size="60" />
-
-            <el-descriptions v-else-if="section.key !== 'refund' && section.key !== 'logs'" :column="1" border>
-              <el-descriptions-item v-for="item in section.items" :key="item.key" :label="item.label">
-                <span class="detail-display__text">{{ item.value }}</span>
-              </el-descriptions-item>
-            </el-descriptions>
-
-            <div
-              v-if="section.key === 'merchant' && detailData.merchant?.phone"
-              class="orders-detail__merchant-actions"
-            >
-              <el-button type="primary" @click="handleContact('merchant', { merchant_phone: detailData.merchant.phone })">
-                拨打商家 {{ detailData.merchant.phone }}
-              </el-button>
-            </div>
-
-            <el-timeline v-else class="orders-detail__timeline">
-              <el-timeline-item
-                v-for="(item, index) in section.items"
-                :key="item.id || item.refund_no || item.created_at || index"
-                :timestamp="formatTime(item.created_at || item.merchant_audit_at || item.success_at)"
-              >
-                <div class="orders-detail__timeline-title">
-                  {{
-                    section.key === 'refund'
-                      ? `${getApplySourceLabel(item.apply_source)} - ${item.status_label || '--'}`
-                      : item.action || section.title
-                  }}
-                </div>
-                <div class="orders-detail__timeline-content">
-                  {{
-                    section.key === 'refund'
-                      ? item.description || item.reject_reason || item.audit_note || '无附加说明'
-                      : item.remark || '无备注'
-                  }}
-                </div>
-              </el-timeline-item>
-            </el-timeline>
-          </div>
-        </template>
-
-        <el-empty v-else description="暂无详情数据" />
-      </div>
-    </el-drawer>
-
-    <el-dialog
-      v-model="refundApproveDialog.visible"
-      title="通过退款申请"
-      width="460px"
-      :close-on-click-modal="false"
-    >
-      <p class="orders-dialog__tip">请选择本次退款的责任归属，系统将按选定口径完成结算。</p>
-      <el-radio-group v-model="refundApproveDialog.responsibilityType" class="orders-dialog__radio-group">
-        <el-radio value="rider">配送责（商家照常结算，配送方承担商品赔偿）</el-radio>
-        <el-radio value="merchant">商家责（商家承担损失，已送达时补骑手配送费）</el-radio>
-      </el-radio-group>
-      <template #footer>
-        <el-button @click="refundApproveDialog.visible = false">取消</el-button>
-        <el-button type="primary" :loading="auditLoading" @click="submitRefundApprove">确认通过</el-button>
-      </template>
-    </el-dialog>
+    <!-- 通过退款前选责任归属的弹窗；确认后回到本页 submitRefundApprove 调后端结算 -->
+    <RefundApproveDialog
+      :dialog="refundApproveDialog"
+      :audit-loading="auditLoading"
+      @submit="submitRefundApprove"
+    />
   </div>
 </template>
 
 <style scoped>
 .orders-table__row--highlight > td {
   background: #fff7e6 !important;
-}
-
-.orders-dialog__tip {
-  margin: 0 0 16px;
-  color: #606266;
-  line-height: 1.6;
-}
-
-.orders-dialog__radio-group {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 12px;
 }
 
 .orders-page {
@@ -1282,150 +964,5 @@ watch(
   display: flex;
   justify-content: flex-end;
   margin-top: 12px;
-}
-
-.orders-detail__audit-bar {
-  margin-bottom: 16px;
-  padding: 16px;
-  border: 1px solid #f5c27b;
-  border-radius: 12px;
-  background: #fff7e6;
-}
-
-.orders-detail__audit-bar--refund {
-  border-color: #91caff;
-  background: #f0f7ff;
-}
-
-.orders-detail__audit-bar--waiting {
-  border-color: #ffd591;
-  background: #fff7e6;
-}
-
-.orders-detail__audit-bar--waiting .orders-detail__audit-title {
-  color: #d46b08;
-}
-
-.orders-detail__audit-desc--muted {
-  color: #8c8c8c;
-  font-size: 13px;
-}
-
-.orders-detail__audit-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: #d46b08;
-}
-
-.orders-detail__audit-bar--refund .orders-detail__audit-title {
-  color: #0958d9;
-}
-
-.orders-detail__audit-desc {
-  margin-top: 8px;
-  color: #8c5300;
-  line-height: 1.6;
-}
-
-.orders-detail__audit-bar--refund .orders-detail__audit-desc {
-  color: #1d39c4;
-}
-
-.orders-detail__audit-extra {
-  margin-top: 8px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  color: #5b6b8a;
-  font-size: 13px;
-}
-
-.orders-detail__audit-actions {
-  margin-top: 12px;
-  display: flex;
-  gap: 12px;
-}
-
-.orders-detail__goods-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.orders-detail__goods-item {
-  display: flex;
-  gap: 12px;
-  padding: 12px;
-  border: 1px solid #ebeef5;
-  border-radius: 8px;
-  background: #fafafa;
-}
-
-.orders-detail__goods-image {
-  width: 72px;
-  height: 72px;
-  flex-shrink: 0;
-  border-radius: 6px;
-  overflow: hidden;
-  background: #f2f3f5;
-}
-
-.orders-detail__goods-image-fallback {
-  width: 72px;
-  height: 72px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  color: #909399;
-  background: #f2f3f5;
-}
-
-.orders-detail__goods-meta {
-  flex: 1;
-  min-width: 0;
-}
-
-.orders-detail__goods-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: #303133;
-  line-height: 1.5;
-}
-
-.orders-detail__goods-spec,
-.orders-detail__goods-desc {
-  margin-top: 4px;
-  font-size: 12px;
-  color: #909399;
-  line-height: 1.5;
-}
-
-.orders-detail__goods-price {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 8px;
-  font-size: 13px;
-  color: #606266;
-}
-
-.orders-detail__goods-subtotal {
-  font-weight: 600;
-  color: #f56c6c;
-}
-
-.orders-detail__merchant-actions {
-  margin-top: 12px;
-}
-
-.orders-detail__section + .orders-detail__section {
-  margin-top: 20px;
-}
-
-.orders-detail__title {
-  margin-bottom: 12px;
-  font-size: 15px;
-  font-weight: 600;
 }
 </style>

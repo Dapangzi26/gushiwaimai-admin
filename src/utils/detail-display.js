@@ -76,6 +76,10 @@ export const DETAIL_LABEL_MAP = {
   platform_income_amount: '平台收益',
   commission_amount: '抽佣金额',
   rider_incentive_amount: '骑手激励',
+  delivery_subsidy_amount: '本店减配送费',
+  delivery_subsidy_delivery_cut: '减配-运费',
+  delivery_subsidy_pickup_cut: '减配-取餐费',
+  delivery_subsidy_platform_extra: '减超进平台',
   customer_town: '用户乡镇',
   display_town_name: '展示乡镇',
   cancel_reason: '取消原因',
@@ -227,6 +231,10 @@ export const ORDER_BASE_FIELD_ORDER = [
   'platform_income_amount',
   'merchant_income_amount',
   'rider_incentive_amount',
+  'delivery_subsidy_amount',
+  'delivery_subsidy_delivery_cut',
+  'delivery_subsidy_pickup_cut',
+  'delivery_subsidy_platform_extra',
   'payment_channel',
   'contact_name',
   'contact_phone',
@@ -642,7 +650,9 @@ export function buildDetailEntries(data, options = {}) {
             value: formatDetailField(key, data[key]),
           }
     ))
-    .filter((entry) => entry.value !== '--' || ['reject_reason', 'audit_locked_reason', 'remark'].includes(entry.key))
+    // settled_at 加入“空值也保留”名单（D-P12）：未结算单结算时间为空会显示「--」，
+    // 保留后才能看出「已完成但还没入账」，而不是被静默滤掉当作没这回事。
+    .filter((entry) => entry.value !== '--' || ['reject_reason', 'audit_locked_reason', 'remark', 'settled_at'].includes(entry.key))
 }
 
 export function buildAssetUrl(value, backendOrigin = '') {

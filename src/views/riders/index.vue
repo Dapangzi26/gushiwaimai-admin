@@ -539,14 +539,6 @@ function getAuditStatusTagType(status) {
   return 'warning'
 }
 
-function formatTime(value) {
-  if (!value) {
-    return '--'
-  }
-
-  return new Date(value).toLocaleString('zh-CN', { hour12: false })
-}
-
 // 路由参数和页面状态保持同步，这样工作台跳过来时，就能直接落到正确的骑手视图。
 watch(
   () => route.query,

@@ -58,6 +58,18 @@ const primarySpotlight = [
     clickable: true,
     route: { path: '/orders', query: { tab: 'refunds', refund_status: 'pending', page: '1', limit: '10' } },
   },
+  {
+    key: 'today_platform_income',
+    label: '今日平台利润',
+    sub: '已入账；镇上 15% 在骑手所得',
+    theme: 'amber',
+    icon: Wallet,
+    source: 'overview',
+    clickable: true,
+    format: 'money',
+    alert: false,
+    route: { path: '/payments', query: { tab: 'settlement' } },
+  },
 ]
 
 const secondaryTiles = [
@@ -126,6 +138,21 @@ const secondaryTiles = [
     },
   },
   {
+    key: 'settlement_pending',
+    label: '待补账',
+    source: 'none',
+    clickable: true,
+    alert: false,
+    route: {
+      path: '/orders',
+      query: {
+        exception_type: 'settlement_pending',
+        page: '1',
+        limit: '10',
+      },
+    },
+  },
+  {
     key: 'pending_withdrawals',
     label: '待处理提现',
     source: 'pending',
@@ -144,13 +171,32 @@ function parseCount(value) {
   return Number.isFinite(num) ? num : 0
 }
 
-function isPendingAlert(value) {
+function isPendingAlert(item, value) {
+  if (item?.alert === false) {
+    return false
+  }
   return parseCount(value) > 0
 }
 
+function formatMoneyValue(value) {
+  if (value === '--') {
+    return '--'
+  }
+  const num = Number(value)
+  return Number.isFinite(num) ? num.toFixed(2) : String(value)
+}
+
 function getTileValue(tile) {
+  if (tile.source === 'none') {
+    return '查看'
+  }
   const source = tile.source === 'overview' ? overview.value : pendingCounts.value
-  return formatValue(source, tile.key)
+  const raw = formatValue(source, tile.key)
+  if (tile.format === 'money') {
+    const amount = formatMoneyValue(raw)
+    return amount === '--' ? '--' : `¥${amount}`
+  }
+  return raw
 }
 
 function handleTileClick(item) {
@@ -236,7 +282,8 @@ onUnmounted(() => {
           class="workbench-spotlight__value"
           :class="{
             'is-loading': loading,
-            'is-alert': !loading && isPendingAlert(getTileValue(item)),
+            'is-money': item.format === 'money',
+            'is-alert': !loading && isPendingAlert(item, getTileValue(item)),
           }"
         >
           {{ loading ? '' : getTileValue(item) }}
@@ -273,7 +320,7 @@ onUnmounted(() => {
             class="workbench-mosaic__value"
             :class="{
               'is-loading': loading,
-              'is-alert': !loading && isPendingAlert(getTileValue(item)),
+              'is-alert': !loading && isPendingAlert(item, getTileValue(item)),
             }"
           >
             {{ loading ? '' : getTileValue(item) }}

@@ -156,6 +156,13 @@ function getRefundRowClassName({ row }) {
       </template>
     </el-table-column>
 
+    <el-table-column label="商家应得" width="88">
+      <template #default="{ row }">
+        <div class="admin-table__main">¥ {{ row.merchant_income_amount ?? '--' }}</div>
+        <div class="admin-table__sub">订单快照</div>
+      </template>
+    </el-table-column>
+
     <el-table-column label="状态/原因" min-width="120" show-overflow-tooltip>
       <template #default="{ row }">
         <el-tag :type="getRefundStatusTagType(row.status)" size="small">{{ row.status_label }}</el-tag>

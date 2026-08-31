@@ -12,12 +12,3 @@ export async function fetchAdminConfig() {
   })
   return unwrapPayload(response)
 }
-
-/**
- * @deprecated 后端无 PUT /admin/config；运营页已只读，禁止调用本函数冒充可写。
- * 产品确认要在线编辑时再补后端写入 + 本页表单。
- */
-export async function updateAdminConfig(data) {
-  const response = await request.put('/admin/config', data)
-  return unwrapPayload(response)
-}
