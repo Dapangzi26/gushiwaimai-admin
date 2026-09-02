@@ -178,35 +178,14 @@
       </div>
     </el-card>
 
-    <el-drawer v-model="detailVisible" :title="detailTitle" size="480px" destroy-on-close>
-      <div v-loading="detailLoading">
-        <el-alert v-if="detailError" :title="detailError" type="error" show-icon :closable="false" />
-        <el-descriptions v-else-if="detailData" :column="1" border>
-          <el-descriptions-item
-            v-for="item in detailEntries"
-            :key="item.key"
-            :label="item.label"
-          >
-            <el-image
-              v-if="item.isImage"
-              :src="item.imageUrl"
-              :preview-src-list="[item.imageUrl]"
-              fit="cover"
-              class="review-detail__image"
-              preview-teleported
-            />
-            <span v-else class="detail-display__text">{{ item.value }}</span>
-          </el-descriptions-item>
-        </el-descriptions>
-      </div>
-      <template #footer>
-        <template v-if="Number(detailData?.rider_audit_status) === 0">
-          <el-button type="success" :loading="actionLoading" @click="handleAudit(detailData, 'approve')">通过</el-button>
-          <el-button type="danger" :loading="actionLoading" @click="handleAudit(detailData, 'reject')">拒绝</el-button>
-        </template>
-        <el-button @click="detailVisible = false">关闭</el-button>
-      </template>
-    </el-drawer>
+    <RiderDetailDrawer
+      ref="detailDrawerRef"
+      :reload="loadList"
+      :list="list"
+      :pagination="pagination"
+      :replace-route-query="replaceRouteQuery"
+      :build-route-query="buildRouteQuery"
+    />
   </div>
 </template>
 
@@ -215,24 +194,20 @@
 // 这里把平台骑手和商家自配送员放到同一个页面里按角色切换，避免总后台菜单叫“骑手管理”，结果只能看自配送员。
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { deleteDeliveryAgent, approveRider, fetchAdminRiders, fetchRiderDetail, rejectRider } from '../../api/riders'
+import { fetchAdminRiders } from '../../api/riders'
 import { getRequestErrorMessage } from '../../utils/http'
 import { normalizeSearchKeyword } from '../../utils/orderNo.js'
-import { getBackendOrigin } from '../../utils/backend-origin'
 import {
-  buildDetailEntries,
   formatCompactTime,
   getDeliveryScopeLabel,
   getAuditStatusLabel,
   getIdentityTypeLabel,
-  RIDER_DETAIL_FIELD_ORDER,
 } from '../../utils/detail-display'
+import { createRiderRouteQuery } from './lib/rider-route-query.js'
+import RiderDetailDrawer from './RiderDetailDrawer.vue'
 
 const route = useRoute()
 const router = useRouter()
-
-const BACKEND_ORIGIN = getBackendOrigin()
 
 const DEFAULT_PAGE_SIZE = 10
 const loading = ref(false)
@@ -251,18 +226,7 @@ const pagination = reactive({
   pageSize: DEFAULT_PAGE_SIZE,
   total: 0,
 })
-
-const detailVisible = ref(false)
-const detailLoading = ref(false)
-const detailError = ref('')
-const detailData = ref(null)
-const detailTitle = ref('骑手详情')
-const actionLoading = ref(false)
-
-const detailEntries = computed(() => buildDetailEntries(detailData.value, {
-  fieldOrder: RIDER_DETAIL_FIELD_ORDER,
-  backendOrigin: BACKEND_ORIGIN,
-}))
+const detailDrawerRef = ref(null)
 
 // 页面副标题跟着当前角色切换，告诉你这块到底在看哪一类配送账号。
 const pageSubtitle = computed(() =>
@@ -271,38 +235,9 @@ const pageSubtitle = computed(() =>
     : '这里看绑定店铺的商家自配送员，只有这一类账号支持直接删除。',
 )
 
-function normalizeRole(value) {
-  return value === 'merchant_delivery' ? 'merchant_delivery' : 'rider'
-}
-
-function normalizePage(value) {
-  const page = Number.parseInt(value, 10)
-  return Number.isFinite(page) && page > 0 ? page : 1
-}
-
-function getKeywordValue(value) {
-  return String(value || '').trim()
-}
-
 function resolveTotal(payload, fallbackTotal = 0) {
   const total = Number(payload?.pagination?.total ?? payload?.total ?? fallbackTotal)
   return Number.isFinite(total) ? total : fallbackTotal
-}
-
-function syncStateFromRoute(query) {
-  activeRole.value = normalizeRole(query.role)
-  filters.nickname = getKeywordValue(query.nickname)
-  filters.phone = getKeywordValue(query.phone)
-  filters.townName = getKeywordValue(query.town_name || query.town)
-  filters.merchantName = getKeywordValue(query.merchant_name)
-
-  const legacyKeyword = getKeywordValue(query.keyword)
-  if (legacyKeyword && !filters.nickname && !filters.phone && !filters.townName && !filters.merchantName) {
-    filters.townName = legacyKeyword
-  }
-
-  onlineStatus.value = getKeywordValue(query.online_status)
-  pagination.page = normalizePage(query.page)
 }
 
 function buildSearchParams() {
@@ -329,69 +264,6 @@ function buildSearchParams() {
   return params
 }
 
-function buildRouteQuery() {
-  const nextQuery = {
-    role: activeRole.value,
-    page: String(pagination.page),
-  }
-
-  const nickname = filters.nickname.trim()
-  const phone = normalizeSearchKeyword(filters.phone)
-  const townName = filters.townName.trim()
-  const merchantName = filters.merchantName.trim()
-
-  if (nickname) nextQuery.nickname = nickname
-  if (phone) nextQuery.phone = phone
-  if (activeRole.value === 'rider') {
-    if (townName) nextQuery.town_name = townName
-  } else if (merchantName) {
-    nextQuery.merchant_name = merchantName
-  }
-
-  if (onlineStatus.value) {
-    nextQuery.online_status = onlineStatus.value
-  }
-
-  return nextQuery
-}
-
-function isSameQuery(nextQuery) {
-  const currentRole = normalizeRole(route.query.role)
-  const currentNickname = getKeywordValue(route.query.nickname)
-  const currentPhone = getKeywordValue(route.query.phone)
-  const currentTownName = getKeywordValue(route.query.town_name || route.query.town || route.query.keyword)
-  const currentMerchantName = getKeywordValue(route.query.merchant_name)
-  const currentOnlineStatus = getKeywordValue(route.query.online_status)
-  const currentPage = String(normalizePage(route.query.page))
-
-  const nextNickname = getKeywordValue(nextQuery.nickname)
-  const nextPhone = getKeywordValue(nextQuery.phone)
-  const nextTownName = getKeywordValue(nextQuery.town_name)
-  const nextMerchantName = getKeywordValue(nextQuery.merchant_name)
-
-  return (
-    currentRole === normalizeRole(nextQuery.role) &&
-    currentNickname === nextNickname &&
-    currentPhone === nextPhone &&
-    currentTownName === nextTownName &&
-    currentMerchantName === nextMerchantName &&
-    currentOnlineStatus === getKeywordValue(nextQuery.online_status) &&
-    currentPage === String(normalizePage(nextQuery.page))
-  )
-}
-
-async function replaceRouteQuery(nextQuery) {
-  if (isSameQuery(nextQuery)) {
-    await loadList()
-    return
-  }
-
-  await router.replace({
-    path: route.path,
-    query: nextQuery,
-  })
-}
-
 // 列表只吃后端已经开放的 admin/rider 接口，所以这里按角色、关键词、分页来请求。
 async function loadList() {
   loading.value = true
@@ -410,6 +282,20 @@ async function loadList() {
     loading.value = false
   }
 }
+
+const {
+  syncStateFromRoute,
+  buildRouteQuery,
+  replaceRouteQuery,
+} = createRiderRouteQuery({
+  activeRole,
+  filters,
+  onlineStatus,
+  pagination,
+  route,
+  router,
+  loadList,
+})
 
 async function handleSearch() {
   pagination.page = 1
@@ -435,102 +321,20 @@ async function handlePageChange(page) {
   await replaceRouteQuery(buildRouteQuery())
 }
 
-async function handleDelete(row) {
-  await ElMessageBox.confirm(
-    `确认删除自配送员「${row.nickname || row.phone || row.id}」吗？删除后该账号将无法继续为店铺配送。`,
-    '删除确认',
-    {
-      confirmButtonText: '确认删除',
-      cancelButtonText: '取消',
-      type: 'warning',
-    },
-  )
-
-  await deleteDeliveryAgent(row.id)
-  ElMessage.success('删除成功')
-
-  if (list.value.length === 1 && pagination.page > 1) {
-    pagination.page -= 1
-    await replaceRouteQuery(buildRouteQuery())
-    return
-  }
-
-  await loadList()
+function handleViewDetail(row) {
+  detailDrawerRef.value.handleViewDetail(row)
 }
 
-async function handleViewDetail(row) {
-  detailVisible.value = true
-  detailLoading.value = true
-  detailError.value = ''
-  detailData.value = null
-  detailTitle.value = `骑手详情 · ${row.nickname || row.id}`
-
-  try {
-    detailData.value = await fetchRiderDetail(row.id)
-  } catch (error) {
-    detailError.value = getRequestErrorMessage(error, '骑手详情加载失败')
-  } finally {
-    detailLoading.value = false
-  }
+function handleAudit(row, action) {
+  detailDrawerRef.value.handleAudit(row, action)
 }
 
-async function handleAudit(row, action) {
-  if (!row?.id) return
-
-  const actionText = action === 'approve' ? '通过' : '拒绝'
-  let payload = {}
-
-  if (action === 'reject') {
-    const promptResult = await ElMessageBox.prompt('请填写驳回原因', '拒绝骑手入驻', {
-      confirmButtonText: '确认拒绝',
-      cancelButtonText: '取消',
-      inputPlaceholder: '驳回原因会展示给骑手',
-      inputValidator: (val) => !!(val && String(val).trim()) || '请填写驳回原因',
-    }).catch(() => null)
-
-    if (!promptResult) return
-    payload = { reject_reason: String(promptResult.value || '').trim() }
-  } else {
-    try {
-      await ElMessageBox.confirm(`确认通过骑手「${row.nickname || row.id}」的入驻申请？`, '审核确认', {
-        confirmButtonText: '通过',
-        cancelButtonText: '取消',
-        type: 'success',
-      })
-    } catch {
-      return
-    }
-  }
-
-  actionLoading.value = true
-  try {
-    if (action === 'approve') {
-      await approveRider(row.id)
-    } else {
-      await rejectRider(row.id, payload)
-    }
-    ElMessage.success(`已${actionText}`)
-    detailVisible.value = false
-    await loadList()
-  } catch (error) {
-    ElMessage.error(getRequestErrorMessage(error, `${actionText}失败`))
-  } finally {
-    actionLoading.value = false
-  }
+function handleDelete(row) {
+  detailDrawerRef.value.handleDelete(row)
 }
 
 function handleRowCommand(command, row) {
-  if (command === 'approve') {
-    handleAudit(row, 'approve')
-    return
-  }
-  if (command === 'reject') {
-    handleAudit(row, 'reject')
-    return
-  }
-  if (command === 'delete') {
-    handleDelete(row)
-  }
+  detailDrawerRef.value.handleRowCommand(command, row)
 }
 
 function getAuditStatusTagType(status) {

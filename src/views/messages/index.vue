@@ -3,16 +3,15 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getRequestErrorMessage } from '../../utils/http'
 import {
-  createNotification,
   deleteNotification,
   fetchNotifications,
   offlineNotification,
   publishNotification,
   toggleNotificationPin,
-  updateNotification,
 } from '../../api/notification'
 import { normalizeSearchKeyword } from '../../utils/orderNo.js'
 import { formatCompactTime } from '../../utils/detail-display'
+import NotificationEditDrawer from './NotificationEditDrawer.vue'
 
 const ROLE_OPTIONS = [
   { label: '全部角色', value: 'all' },
@@ -51,33 +50,12 @@ const listState = reactive({
 
 const dialogVisible = ref(false)
 const dialogMode = ref('create')
-const submitLoading = ref(false)
 const actionLoadingId = ref(null)
-const formRef = ref(null)
 const editingId = ref(null)
+const editingRow = ref(null)
 
-const form = reactive(createDefaultForm())
-
-const dialogTitle = computed(() => (dialogMode.value === 'create' ? '新建系统通知' : '编辑系统通知'))
 const hasActiveFilters = computed(() => Boolean(filters.status || filters.target_role || filters.keyword.trim()))
 const tableData = computed(() => listState.items)
-
-const formRules = {
-  title: [{ required: true, message: '请输入标题', trigger: 'blur' }],
-  content: [{ required: true, message: '请输入正文', trigger: 'blur' }],
-  target_role: [{ required: true, message: '请选择目标角色', trigger: 'change' }],
-  status: [{ required: true, message: '请选择状态', trigger: 'change' }],
-}
-
-function createDefaultForm() {
-  return {
-    title: '',
-    content: '',
-    target_role: 'all',
-    status: 'draft',
-    is_pinned: false,
-  }
-}
 
 function resolveList(payload) {
   if (Array.isArray(payload)) {
@@ -154,61 +132,18 @@ function handleReset() {
   loadNotifications()
 }
 
-function fillForm(data) {
-  form.title = data?.title || ''
-  form.content = data?.content || ''
-  form.target_role = data?.target_role || 'all'
-  form.status = data?.status || 'draft'
-  form.is_pinned = Boolean(data?.is_pinned)
-}
-
 function openCreateDialog() {
   dialogMode.value = 'create'
   editingId.value = null
-  fillForm(createDefaultForm())
+  editingRow.value = null
   dialogVisible.value = true
 }
 
 function openEditDialog(row) {
   dialogMode.value = 'edit'
   editingId.value = row.id
-  fillForm(row)
+  editingRow.value = row
   dialogVisible.value = true
-}
-
-function handleDialogClosed() {
-  formRef.value?.clearValidate()
-}
-
-async function handleSubmit() {
-  if (!formRef.value) {
-    return
-  }
-
-  try {
-    await formRef.value.validate()
-    submitLoading.value = true
-    const payload = {
-      title: form.title.trim(),
-      content: form.content.trim(),
-      target_role: form.target_role,
-      status: form.status,
-      is_pinned: form.is_pinned,
-    }
-
-    if (dialogMode.value === 'create') {
-      await createNotification(payload)
-      ElMessage.success('系统通知创建成功')
-    } else {
-      await updateNotification(editingId.value, payload)
-      ElMessage.success('系统通知更新成功')
-    }
-
-    dialogVisible.value = false
-    await loadNotifications()
-  } finally {
-    submitLoading.value = false
-  }
 }
 
 async function handlePublish(row) {
@@ -468,66 +403,14 @@ onMounted(() => {
       />
     </el-card>
 
-    <el-drawer
-      v-model="dialogVisible"
-      :title="dialogTitle"
-      size="560px"
-      destroy-on-close
-      @closed="handleDialogClosed"
-    >
-      <el-form ref="formRef" :model="form" :rules="formRules" label-position="top" class="notification-form">
-        <el-form-item label="标题" prop="title">
-          <el-input v-model="form.title" maxlength="100" show-word-limit placeholder="请输入通知标题" />
-        </el-form-item>
-
-        <el-form-item label="正文" prop="content">
-          <el-input
-            v-model="form.content"
-            type="textarea"
-            :rows="10"
-            maxlength="5000"
-            show-word-limit
-            placeholder="请输入通知正文"
-          />
-        </el-form-item>
-
-        <div class="notification-form__grid">
-          <el-form-item label="目标角色" prop="target_role">
-            <el-select v-model="form.target_role" placeholder="请选择目标角色">
-              <el-option
-                v-for="item in ROLE_OPTIONS"
-                :key="item.value"
-                :label="item.label"
-                :value="item.value"
-              />
-            </el-select>
-          </el-form-item>
-
-          <el-form-item label="状态" prop="status">
-            <el-select v-model="form.status" placeholder="请选择状态">
-              <el-option
-                v-for="item in STATUS_OPTIONS"
-                :key="item.value"
-                :label="item.label"
-                :value="item.value"
-              />
-            </el-select>
-          </el-form-item>
-        </div>
-
-        <el-form-item label="是否置顶">
-          <el-switch v-model="form.is_pinned" />
-        </el-form-item>
-      </el-form>
-
-      <template #footer>
-        <div class="notification-drawer__footer">
-          <el-button @click="dialogVisible = false">取消</el-button>
-          <el-button type="primary" :loading="submitLoading" @click="handleSubmit">
-            {{ dialogMode === 'create' ? '创建通知' : '保存修改' }}
-          </el-button>
-        </div>
-      </template>
-    </el-drawer>
+    <NotificationEditDrawer
+      v-model:visible="dialogVisible"
+      :mode="dialogMode"
+      :editing-id="editingId"
+      :initial-row="editingRow"
+      :role-options="ROLE_OPTIONS"
+      :status-options="STATUS_OPTIONS"
+      :reload="loadNotifications"
+    />
   </div>
 </template>

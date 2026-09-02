@@ -142,69 +142,23 @@
       </div>
     </el-card>
 
-    <el-drawer v-model="detailVisible" :title="detailTitle" size="520px" destroy-on-close>
-      <div v-loading="detailLoading">
-        <el-alert
-          v-if="detailError"
-          :title="detailError"
-          type="error"
-          show-icon
-          :closable="false"
-        />
-        <el-descriptions v-else-if="detailData" :column="1" border>
-          <el-descriptions-item
-            v-for="item in detailEntries"
-            :key="item.key"
-            :label="item.label"
-          >
-            <el-image
-              v-if="item.isImage"
-              :src="item.imageUrl"
-              :preview-src-list="[item.imageUrl]"
-              fit="cover"
-              class="review-detail__image"
-              preview-teleported
-            />
-            <span v-else class="detail-display__text">{{ item.value }}</span>
-          </el-descriptions-item>
-        </el-descriptions>
-      </div>
-      <template #footer>
-        <template v-if="Number(detailData?.audit_status) === 0">
-          <el-button type="success" :loading="actionLoading" @click="handleAudit(detailData, 'approve')">
-            通过
-          </el-button>
-          <el-button type="danger" :loading="actionLoading" @click="handleAudit(detailData, 'reject')">
-            拒绝
-          </el-button>
-        </template>
-        <el-button @click="detailVisible = false">关闭</el-button>
-      </template>
-    </el-drawer>
+    <MerchantDetailDrawer ref="detailDrawerRef" :reload="loadList" />
   </div>
 </template>
 
 <script setup>
 // 这个文件是“总后台商家管理页”逻辑。
 // 通过 /admin/merchant/* 拉取列表与详情，待审商家支持本页直接审核。
-import { reactive, ref, watch, computed } from 'vue'
+import { reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import {
-  approveMerchant,
-  fetchAdminMerchantDetail,
-  fetchAdminMerchants,
-  rejectMerchant,
-} from '../../api/merchant'
+import { fetchAdminMerchants } from '../../api/merchant'
 import { getRequestErrorMessage } from '../../utils/http'
-import { getBackendOrigin } from '../../utils/backend-origin'
-import { buildDetailEntries, formatCompactTime, getAuditStatusLabel, getBusinessScopeLabel, MERCHANT_DETAIL_FIELD_ORDER } from '../../utils/detail-display'
+import { formatCompactTime, getAuditStatusLabel, getBusinessScopeLabel } from '../../utils/detail-display'
 import { normalizeSearchKeyword } from '../../utils/orderNo.js'
+import MerchantDetailDrawer from './MerchantDetailDrawer.vue'
 
 const route = useRoute()
 const router = useRouter()
-
-const BACKEND_ORIGIN = getBackendOrigin()
 
 const DEFAULT_PAGE_SIZE = 10
 const loading = ref(false)
@@ -218,18 +172,7 @@ const filters = reactive({
   townName: '',
 })
 const pagination = reactive({ page: 1, pageSize: DEFAULT_PAGE_SIZE, total: 0 })
-
-const detailVisible = ref(false)
-const detailLoading = ref(false)
-const detailError = ref('')
-const detailData = ref(null)
-const detailTitle = ref('商家详情')
-const actionLoading = ref(false)
-
-const detailEntries = computed(() => buildDetailEntries(detailData.value, {
-  fieldOrder: MERCHANT_DETAIL_FIELD_ORDER,
-  backendOrigin: BACKEND_ORIGIN,
-}))
+const detailDrawerRef = ref(null)
 
 function normalizeStatus(value) {
   const allowed = ['all', 'pending', 'approved', 'rejected']
@@ -330,69 +273,16 @@ function handlePageChange(page) {
   syncRouteQuery()
 }
 
-async function handleViewDetail(row) {
-  detailVisible.value = true
-  detailLoading.value = true
-  detailError.value = ''
-  detailData.value = null
-  detailTitle.value = `商家详情 · ${row.store_name || row.id}`
-
-  try {
-    detailData.value = await fetchAdminMerchantDetail(row.id)
-  } catch (error) {
-    detailError.value = getRequestErrorMessage(error, '商家详情加载失败')
-  } finally {
-    detailLoading.value = false
-  }
+function handleViewDetail(row) {
+  detailDrawerRef.value.handleViewDetail(row)
 }
 
 function goReviews() {
   router.push({ path: '/reviews', query: { tab: 'merchant' } })
 }
 
-async function handleAudit(row, action) {
-  if (!row?.id) return
-
-  const actionText = action === 'approve' ? '通过' : '拒绝'
-  let payload = {}
-
-  if (action === 'reject') {
-    const promptResult = await ElMessageBox.prompt('请填写驳回原因', '拒绝商家入驻', {
-      confirmButtonText: '确认拒绝',
-      cancelButtonText: '取消',
-      inputPlaceholder: '驳回原因会展示给商家',
-      inputValidator: (val) => !!(val && String(val).trim()) || '请填写驳回原因',
-    }).catch(() => null)
-
-    if (!promptResult) return
-    payload = { reject_reason: String(promptResult.value || '').trim() }
-  } else {
-    try {
-      await ElMessageBox.confirm(`确认通过商家「${row.store_name || row.id}」的入驻申请？`, '审核确认', {
-        confirmButtonText: '通过',
-        cancelButtonText: '取消',
-        type: 'success',
-      })
-    } catch {
-      return
-    }
-  }
-
-  actionLoading.value = true
-  try {
-    if (action === 'approve') {
-      await approveMerchant(row.id)
-    } else {
-      await rejectMerchant(row.id, payload)
-    }
-    ElMessage.success(`已${actionText}`)
-    detailVisible.value = false
-    await loadList()
-  } catch (error) {
-    ElMessage.error(getRequestErrorMessage(error, `${actionText}失败`))
-  } finally {
-    actionLoading.value = false
-  }
+function handleAudit(row, action) {
+  return detailDrawerRef.value.handleAudit(row, action)
 }
 
 function initFromRoute() {

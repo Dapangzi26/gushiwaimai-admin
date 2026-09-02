@@ -1,6 +1,7 @@
 <script setup>
 import { formatOrderNoDisplay } from '../../utils/orderNo.js'
 import { getApplySourceLabel } from '../../utils/detail-display'
+import { canAdminArbitrateRefund } from './lib/can-admin-arbitrate-refund.js'
 
 defineProps({
   filters: { type: Object, required: true },
@@ -48,29 +49,6 @@ function getRefundAuditChannelLabel(refund) {
 
 function isRefundRowHighlighted(row) {
   return Boolean(row?.is_merchant_audit_overdue || row?.is_merchant_escalated)
-}
-
-/**
- * 平台是否可仲裁该笔售后退款（C3：只读后端 can_admin_arbitrate）。
- * 缺字段时不猜业务规则，默认不可操作，避免与 policy 漂移。
- */
-function canAdminArbitrateRefund(row) {
-  if (!row || Number(row.status) !== 0) {
-    return false
-  }
-
-  if (row.apply_source && row.apply_source !== 'after_sale') {
-    return false
-  }
-
-  if (typeof row.can_admin_arbitrate === 'boolean') {
-    return row.can_admin_arbitrate
-  }
-  if (typeof row.raw?.can_admin_arbitrate === 'boolean') {
-    return row.raw.can_admin_arbitrate
-  }
-
-  return false
 }
 
 function getRefundRowClassName({ row }) {

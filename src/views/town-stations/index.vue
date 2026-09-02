@@ -129,27 +129,7 @@
       </div>
     </el-card>
 
-    <el-drawer v-model="detailVisible" title="站长详情" size="480px" destroy-on-close>
-      <div v-loading="detailLoading">
-        <el-descriptions v-if="detailData" :column="1" border>
-          <el-descriptions-item
-            v-for="item in detailEntries"
-            :key="item.key"
-            :label="item.label"
-          >
-            <el-image
-              v-if="item.isImage"
-              :src="item.imageUrl"
-              :preview-src-list="[item.imageUrl]"
-              fit="cover"
-              class="review-detail__image"
-              preview-teleported
-            />
-            <span v-else class="detail-display__text">{{ item.value }}</span>
-          </el-descriptions-item>
-        </el-descriptions>
-      </div>
-    </el-drawer>
+    <TownStationDetailDrawer ref="detailDrawerRef" />
   </div>
 </template>
 
@@ -159,17 +139,15 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { fetchTownStations, isTownStationsApiUnavailable } from '../../api/town-stations'
-import { fetchAdminRiders, fetchRiderDetail } from '../../api/riders'
 import { getRequestErrorMessage } from '../../utils/http'
-import { buildDetailEntries, formatCompactTime, RIDER_DETAIL_FIELD_ORDER } from '../../utils/detail-display'
-import { getBackendOrigin } from '../../utils/backend-origin'
-import { matchesLocalSearchKeyword, normalizeSearchKeyword } from '../../utils/orderNo.js'
+import { formatCompactTime } from '../../utils/detail-display'
+import { normalizeSearchKeyword } from '../../utils/orderNo.js'
 import { resolveList, resolveTotal } from '../../utils/list'
+import { createTownStationsFallback } from './lib/town-stations-fallback.js'
+import TownStationDetailDrawer from './TownStationDetailDrawer.vue'
 
 const router = useRouter()
 const route = useRoute()
-
-const BACKEND_ORIGIN = getBackendOrigin()
 
 const DEFAULT_PAGE_SIZE = 10
 const loading = ref(false)
@@ -183,15 +161,7 @@ const allRiders = ref([])
 const stationList = ref([])
 const dataSource = ref('fallback')
 const pagination = reactive({ page: 1, pageSize: DEFAULT_PAGE_SIZE, total: 0 })
-
-const detailVisible = ref(false)
-const detailLoading = ref(false)
-const detailData = ref(null)
-
-const detailEntries = computed(() => buildDetailEntries(detailData.value, {
-  fieldOrder: RIDER_DETAIL_FIELD_ORDER,
-  backendOrigin: BACKEND_ORIGIN,
-}))
+const detailDrawerRef = ref(null)
 
 const statCards = computed(() => {
   const towns = new Set(stationList.value.map((item) => item.town_name || item.rider_town).filter(Boolean))
@@ -210,57 +180,17 @@ const statCards = computed(() => {
   ]
 })
 
-function isStationMaster(row) {
-  return (
-    row?.rider_kind === 'stationmaster' ||
-    row?.rider_level === 'captain' ||
-    row?.identity_type === '乡镇站长'
-  )
-}
-
-function normalizeTownName(row) {
-  return String(row?.town_name || row?.rider_town || '').trim()
-}
-
-function getTownRiderCount(stationRow) {
-  if (Number.isFinite(Number(stationRow?.town_rider_count))) {
-    return Number(stationRow.town_rider_count)
-  }
-
-  const town = normalizeTownName(stationRow)
-  if (!town) return 0
-
-  return allRiders.value.filter((item) => {
-    if (isStationMaster(item)) return false
-    if (item.delivery_scope !== 'town_delivery') return false
-    return normalizeTownName(item) === town
-  }).length
-}
-
-function applyFilter() {
-  let stations = allRiders.value.filter(isStationMaster)
-
-  const nickname = filters.nickname.trim()
-  const phone = filters.phone.trim()
-  const townName = filters.townName.trim()
-
-  if (nickname) {
-    stations = stations.filter((item) => matchesLocalSearchKeyword(nickname, [item.nickname]))
-  }
-
-  if (phone) {
-    stations = stations.filter((item) => matchesLocalSearchKeyword(phone, [item.phone]))
-  }
-
-  if (townName) {
-    stations = stations.filter((item) =>
-      matchesLocalSearchKeyword(townName, [item.town_name, item.rider_town, item.town_code]),
-    )
-  }
-
-  stationList.value = stations
-  pagination.total = stations.length
-}
+const {
+  normalizeTownName,
+  getTownRiderCount,
+  loadAllRidersFallback,
+} = createTownStationsFallback({
+  allRiders,
+  stationList,
+  pagination,
+  dataSource,
+  filters,
+})
 
 function buildSearchParams() {
   const params = {
@@ -300,33 +230,6 @@ function initFromRoute() {
   filters.phone = String(route.query.phone || '').trim()
   filters.townName = String(route.query.town_name || route.query.town || '').trim()
   pagination.page = Math.max(parseInt(route.query.page, 10) || 1, 1)
-}
-
-async function fetchAllRiderPages() {
-  const merged = []
-  let page = 1
-  let totalPages = 1
-
-  while (page <= totalPages) {
-    const result = await fetchAdminRiders({ role: 'rider', page, limit: 50 })
-    const batch = Array.isArray(result?.list) ? result.list : []
-    merged.push(...batch)
-
-    totalPages = result?.pagination?.total_pages || 1
-    page += 1
-
-    if (batch.length === 0) break
-  }
-
-  return merged
-}
-
-async function loadAllRidersFallback(forceRefresh = false) {
-  if (forceRefresh || !allRiders.value.length) {
-    allRiders.value = await fetchAllRiderPages()
-  }
-  dataSource.value = 'fallback'
-  applyFilter()
 }
 
 async function loadStations(forceRefreshFallback = false) {
@@ -385,18 +288,8 @@ function handlePageChange(page) {
   syncRouteQuery()
 }
 
-async function handleViewDetail(row) {
-  detailVisible.value = true
-  detailLoading.value = true
-  detailData.value = null
-
-  try {
-    detailData.value = await fetchRiderDetail(row.id)
-  } catch {
-    detailData.value = row
-  } finally {
-    detailLoading.value = false
-  }
+function handleViewDetail(row) {
+  detailDrawerRef.value.handleViewDetail(row)
 }
 
 function goRiders(row) {

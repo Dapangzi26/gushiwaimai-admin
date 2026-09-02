@@ -5,28 +5,27 @@
  * 浏览器策略说明：
  * - 首次必须由用户点击（登录按钮、顶栏「开启语音」等）解锁 AudioContext 和语音合成
  * - 解锁状态保存在 sessionStorage，同标签页刷新后需重新点一次
+ *
+ * 本文件是门面：7 个具名 export 原名仍从这里拿。dedupe 留本文件，禁止拆散后重连双报。
+ * jumpPath 只写进 alert 对象，全仓无读取，禁止改成按它跳。
  */
-const SETTINGS_KEY = 'gushi_admin_reminder_settings_v1'
-const AUDIO_UNLOCK_KEY = 'gushi_admin_audio_unlocked_v1'
+import { getReminderSettings, loadSettings, writeReminderSettings } from './admin-reminder-settings.js'
+import {
+  ensureAudioContext,
+  getAudioStatus,
+  playAlertSound,
+  playLocalAudio,
+  writeAudioUnlockedFlag,
+} from './admin-reminder-audio.js'
+import { speakText, testVoiceReminder } from './admin-reminder-speech.js'
+
+export { getReminderSettings } from './admin-reminder-settings.js'
+export { getAudioStatus } from './admin-reminder-audio.js'
+export { testVoiceReminder } from './admin-reminder-speech.js'
+
 const RECENT_DEDUPE_MS = 60000
 
-const DEFAULT_SETTINGS = {
-  speechEnabled: true,
-  soundEnabled: true,
-  browserNotificationEnabled: true,
-  speechRate: 0.95,
-  speechVolume: 1,
-  speechRepeatCount: 2,
-  alarmRepeatCount: 3,
-}
-
-// 待接单预警（支付后约 4 分钟商家仍未接单）专用配音，走 public/audio 静态目录。
-const LOCAL_AUDIO_PATH = '/audio/超时未接单.mp3'
-
-let audioContext = null
 let recentDedupeMap = new Map()
-let cachedChineseVoice = null
-let voicesReadyPromise = null
 const audioStatusListeners = new Set()
 
 function notifyAudioStatusChange() {
@@ -48,43 +47,6 @@ export function subscribeAudioStatus(listener) {
   audioStatusListeners.add(listener)
   listener(getAudioStatus())
   return () => audioStatusListeners.delete(listener)
-}
-
-function loadSettings() {
-  try {
-    const raw = localStorage.getItem(SETTINGS_KEY)
-    if (!raw) {
-      return { ...DEFAULT_SETTINGS }
-    }
-    const parsed = JSON.parse(raw)
-    return { ...DEFAULT_SETTINGS, ...parsed }
-  } catch (error) {
-    return { ...DEFAULT_SETTINGS }
-  }
-}
-
-function saveSettings(nextSettings) {
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(nextSettings))
-}
-
-function readAudioUnlockedFlag() {
-  try {
-    return sessionStorage.getItem(AUDIO_UNLOCK_KEY) === '1'
-  } catch (error) {
-    return false
-  }
-}
-
-function writeAudioUnlockedFlag(unlocked) {
-  try {
-    if (unlocked) {
-      sessionStorage.setItem(AUDIO_UNLOCK_KEY, '1')
-    } else {
-      sessionStorage.removeItem(AUDIO_UNLOCK_KEY)
-    }
-  } catch (error) {
-    // ignore
-  }
 }
 
 function cleanupDedupeMap() {
@@ -137,193 +99,6 @@ function normalizeAlert(payload = {}) {
   }
 }
 
-function ensureAudioContext() {
-  const Ctx = window.AudioContext || window.webkitAudioContext
-  if (!Ctx) {
-    return null
-  }
-  if (!audioContext) {
-    audioContext = new Ctx()
-  }
-  return audioContext
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms)
-  })
-}
-
-function playTone(ctx, frequency, durationMs, gainValue = 0.28) {
-  return new Promise((resolve) => {
-    try {
-      const oscillator = ctx.createOscillator()
-      const gainNode = ctx.createGain()
-      oscillator.type = 'square'
-      oscillator.frequency.value = frequency
-      gainNode.gain.value = gainValue
-      oscillator.connect(gainNode)
-      gainNode.connect(ctx.destination)
-      oscillator.start()
-      setTimeout(() => {
-        try {
-          oscillator.stop()
-        } catch (error) {
-          // ignore
-        }
-        resolve()
-      }, durationMs)
-    } catch (error) {
-      resolve()
-    }
-  })
-}
-
-async function playLocalAudio(settings = loadSettings()) {
-  if (!settings.speechEnabled) {
-    return false
-  }
-
-  return new Promise((resolve) => {
-    try {
-      const audio = new Audio(LOCAL_AUDIO_PATH)
-      audio.volume = Math.max(Number(settings.speechVolume) || 1, 0.2)
-      audio.onended = () => resolve(true)
-      audio.onerror = () => resolve(false)
-      const playPromise = audio.play()
-      if (playPromise && typeof playPromise.catch === 'function') {
-        playPromise.catch(() => resolve(false))
-      }
-    } catch (error) {
-      resolve(false)
-    }
-  })
-}
-
-async function playAlertSound(settings = loadSettings()) {
-  if (!settings.soundEnabled) {
-    return false
-  }
-
-  const ctx = ensureAudioContext()
-  if (!ctx) {
-    return false
-  }
-
-  if (ctx.state === 'suspended') {
-    try {
-      await ctx.resume()
-    } catch (error) {
-      console.warn('[admin-reminder] audio resume failed:', error)
-      return false
-    }
-  }
-
-  const repeatCount = Math.max(Number(settings.alarmRepeatCount) || 3, 1)
-  for (let index = 0; index < repeatCount; index += 1) {
-    await playTone(ctx, 880, 220, 0.3)
-    await sleep(120)
-    await playTone(ctx, 660, 220, 0.26)
-    if (index < repeatCount - 1) {
-      await sleep(180)
-    }
-  }
-
-  return true
-}
-
-function ensureVoicesReady() {
-  if (typeof window === 'undefined' || !window.speechSynthesis) {
-    return Promise.resolve([])
-  }
-
-  if (voicesReadyPromise) {
-    return voicesReadyPromise
-  }
-
-  voicesReadyPromise = new Promise((resolve) => {
-    const voices = window.speechSynthesis.getVoices()
-    if (voices.length) {
-      resolve(voices)
-      return
-    }
-
-    const handleVoicesChanged = () => {
-      window.speechSynthesis.removeEventListener('voiceschanged', handleVoicesChanged)
-      resolve(window.speechSynthesis.getVoices())
-    }
-
-    window.speechSynthesis.addEventListener('voiceschanged', handleVoicesChanged)
-    setTimeout(() => {
-      window.speechSynthesis.removeEventListener('voiceschanged', handleVoicesChanged)
-      resolve(window.speechSynthesis.getVoices())
-    }, 1200)
-  })
-
-  return voicesReadyPromise
-}
-
-function pickChineseVoice(voices = []) {
-  if (cachedChineseVoice) {
-    return cachedChineseVoice
-  }
-
-  const preferred = voices.find((voice) => /zh-CN|cmn|Chinese/i.test(`${voice.lang} ${voice.name}`))
-  cachedChineseVoice = preferred || voices.find((voice) => voice.lang?.startsWith('zh')) || voices[0] || null
-  return cachedChineseVoice
-}
-
-function speakOnce(text, settings, voices) {
-  return new Promise((resolve) => {
-    try {
-      const utterance = new SpeechSynthesisUtterance(text)
-      utterance.lang = 'zh-CN'
-      utterance.rate = settings.speechRate
-      utterance.volume = settings.speechVolume
-      const voice = pickChineseVoice(voices)
-      if (voice) {
-        utterance.voice = voice
-      }
-      utterance.onend = () => resolve(true)
-      utterance.onerror = () => resolve(false)
-      window.speechSynthesis.speak(utterance)
-    } catch (error) {
-      resolve(false)
-    }
-  })
-}
-
-async function speakText(text, settings = loadSettings()) {
-  if (!settings.speechEnabled || !text || typeof window === 'undefined' || !window.speechSynthesis) {
-    return false
-  }
-
-  const ctx = ensureAudioContext()
-  if (ctx?.state === 'suspended') {
-    try {
-      await ctx.resume()
-    } catch (error) {
-      // ignore
-    }
-  }
-
-  const voices = await ensureVoicesReady()
-  const repeatCount = Math.max(Number(settings.speechRepeatCount) || 2, 1)
-  let spoke = false
-
-  for (let index = 0; index < repeatCount; index += 1) {
-    window.speechSynthesis.cancel()
-    await sleep(80)
-    const ok = await speakOnce(text, settings, voices)
-    spoke = spoke || ok
-    if (index < repeatCount - 1) {
-      await sleep(500)
-    }
-  }
-
-  return spoke
-}
-
 function showBrowserNotification(alert, settings = loadSettings()) {
   if (!settings.browserNotificationEnabled || typeof window === 'undefined' || !('Notification' in window)) {
     return
@@ -354,28 +129,10 @@ function showBrowserNotification(alert, settings = loadSettings()) {
   }
 }
 
-export function getReminderSettings() {
-  return loadSettings()
-}
-
 export function updateReminderSettings(partial = {}) {
-  const next = { ...loadSettings(), ...partial }
-  saveSettings(next)
+  const next = writeReminderSettings(partial)
   notifyAudioStatusChange()
   return next
-}
-
-export function getAudioStatus() {
-  const settings = loadSettings()
-  const ctx = ensureAudioContext()
-  return {
-    unlocked: readAudioUnlockedFlag(),
-    speechSupported: typeof window !== 'undefined' && !!window.speechSynthesis,
-    audioContextState: ctx?.state || 'unsupported',
-    speechEnabled: settings.speechEnabled,
-    soundEnabled: settings.soundEnabled,
-    browserNotificationEnabled: settings.browserNotificationEnabled,
-  }
 }
 
 /**
@@ -395,20 +152,6 @@ export async function unlockAudioPlayback() {
   writeAudioUnlockedFlag(true)
   notifyAudioStatusChange()
   return getAudioStatus()
-}
-
-export async function testVoiceReminder() {
-  const settings = loadSettings()
-  await playAlertSound(settings)
-  const localPlayed = await playLocalAudio(settings)
-  if (localPlayed) {
-    return true
-  }
-  const spoke = await speakText('这是一条待接单预警测试播报，请确认您能听到语音', settings)
-  if (!spoke) {
-    throw new Error('语音播报失败，请检查浏览器是否允许声音，或点击顶栏「开启语音」后重试')
-  }
-  return true
 }
 
 export function createAdminReminderCenter(options = {}) {
